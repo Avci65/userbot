@@ -45,6 +45,21 @@ client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 # ---------------- Bot API Helpers ----------------
 BOT_USERNAME_CACHE = None
+async def send_reply_chain_to_quotly(bot_entity, quoted, replied):
+    """
+    quoted -> önce gönderilir
+    replied -> quoted mesajına reply olarak gönderilir
+    böylece QuotLy gerçek reply quote şeklinde sticker üretir
+    """
+    # 1) quoted mesajı düz metin olarak gönder
+    q_text = (quoted.raw_text or "").strip() or " "
+    sent_q = await client.send_message(bot_entity, q_text)
+
+    # 2) replied mesajını reply olarak gönder
+    r_text = (replied.raw_text or "").strip() or " "
+    sent_r = await client.send_message(bot_entity, r_text, reply_to=sent_q.id)
+
+    return sent_r.id  # min_id için kullanacağız
 
 def _rand_pack_suffix(n=10):
     return "".join(random.choice(string.ascii_lowercase + string.digits) for _ in range(n))
@@ -158,12 +173,39 @@ async def cmd_q(event):
                 break
         return sticker_msg
 
-    # ✅ 1) çoklu mesaj modu (n>1)
+    async def wait_for_sticker(min_id: int):
+        """QuotLy sohbetinden sticker bekle (min_id sonrası)"""
+        sticker_msg = None
+        for _ in range(80):  # 40sn
+            await asyncio.sleep(0.5)
+            msgs = await client.get_messages(bot_entity, min_id=min_id, limit=30)
+            for m in msgs:
+                if m.sticker or (m.file and m.file.mime_type == "image/webp"):
+                    sticker_msg = m
+                    break
+            if sticker_msg:
+                break
+        return sticker_msg
+
+    async def send_reply_chain_to_quotly(quoted, replied_msg):
+        """
+        QuotLy'ye gerçek reply ilişkisiyle mesaj gönder.
+        Böylece Quoty bot sticker'ı reply quote gibi üretir.
+        """
+        q_text = (quoted.raw_text or "").strip() or " "
+        sent_q = await client.send_message(bot_entity, q_text)
+
+        r_text = (replied_msg.raw_text or "").strip() or " "
+        sent_r = await client.send_message(bot_entity, r_text, reply_to=sent_q.id)
+
+        return sent_r.id
+
+    # ✅ 1) Çoklu mesaj modu (n>1)
     if n > 1:
         start_id = replied.id
-        msgs = await client.get_messages(event.chat_id, min_id=start_id - 1, limit=n + 6)
 
-        # sırala
+        # Daha fazla çekiyoruz ki filter sonrası yeter kalsın
+        msgs = await client.get_messages(event.chat_id, min_id=start_id - 1, limit=n + 15)
         msgs = sorted(msgs, key=lambda m: m.id)
 
         # replied dahil başlayarak n mesaj al
@@ -175,7 +217,7 @@ async def cmd_q(event):
             msgs = [m for m in msgs if m.sender_id == me.id]
             msgs = msgs[:n]
 
-        # reply chain isteniyorsa ve ilk mesaj reply içeriyorsa quoted ekle
+        # reply chain isteniyorsa: replied'in reply aldığı mesajı başa ekle
         if use_reply_chain and replied.is_reply:
             quoted = await replied.get_reply_message()
             if quoted:
@@ -189,23 +231,27 @@ async def cmd_q(event):
         await status.delete()
         return
 
-    # ✅ 2) tek mesaj ama reply chain ( .q r )
+    # ✅ 2) Tek mesaj + gerçek reply quote ( .q r )
     if use_reply_chain and replied.is_reply:
         quoted = await replied.get_reply_message()
         if quoted:
-            sticker_msg = await forward_and_wait([quoted, replied])
-        else:
-            sticker_msg = await forward_and_wait(replied)
-    else:
-        # ✅ 3) normal tek mesaj
-        sticker_msg = await forward_and_wait(replied)
+            last_id = await send_reply_chain_to_quotly(quoted, replied)
+            sticker_msg = await wait_for_sticker(last_id)
 
+            if not sticker_msg:
+                return await status.edit("❌ QuotLy sticker göndermedi. (40sn)")
+
+            await client.send_file(event.chat_id, sticker_msg, force_document=False)
+            await status.delete()
+            return
+
+    # ✅ 3) Normal tek mesaj ( .q )
+    sticker_msg = await forward_and_wait(replied)
     if not sticker_msg:
         return await status.edit("❌ QuotLy sticker göndermedi. (40sn)")
 
     await client.send_file(event.chat_id, sticker_msg, force_document=False)
     await status.delete()
-
 
 
 # ✅ .dizla / .dızla (Redis ile sabit pack)
