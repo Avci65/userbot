@@ -8,6 +8,8 @@ import redis
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from PIL import Image
+from userbot.loader import load_plugins
+load_plugins(client)
 
 # ---------------- ENV ----------------
 API_ID = int(os.getenv("API_ID", "0"))
