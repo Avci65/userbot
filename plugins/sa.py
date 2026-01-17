@@ -4,8 +4,12 @@ from telethon import events
 def setup(client):
     print("✅ sa.py plugin yüklendi")
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^sa$"))
+    @client.on(events.NewMessage(pattern=r"(?i)^sa$"))
     async def sa_handler(event):
+        # sadece ben yazınca çalışsın
+        if event.sender_id != int(os.getenv("OWNER_ID", "0")) and os.getenv("OWNER_ID", "0") != "0":
+            return
+
         print("✅ SA komutu yakalandı")
 
         animation_interval = 0.4
