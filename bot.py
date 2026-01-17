@@ -14,7 +14,8 @@ SESSION_STRING = SESSION_STRING.replace("\n", "").replace("\r", "").strip()
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))  # Railway Variables'a eklenecek
 
 def is_owner(event) -> bool:
-    return OWNER_ID != 0 and event.sender_id == OWNER_ID
+    return OWNER_ID == 0 or event.sender_id == OWNER_ID
+
 
 if API_ID == 0 or not API_HASH or not SESSION_STRING:
     raise ValueError("API_ID / API_HASH / SESSION_STRING ortam değişkenleri eksik!")
