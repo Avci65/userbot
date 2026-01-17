@@ -1,5 +1,8 @@
 import os
 import textwrap
+from io import BytesIO
+
+import requests
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from PIL import Image, ImageDraw, ImageFont
@@ -21,58 +24,91 @@ if API_ID == 0 or not API_HASH or not SESSION_STRING:
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
-# ---------------- FONT ----------------
-def _load_font(size: int):
+# ---------------- QUATLY STYLE HELPERS ----------------
+def _load_font(size: int, bold=False):
     try:
+        if bold:
+            return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
         return ImageFont.truetype("DejaVuSans.ttf", size)
     except:
         return ImageFont.load_default()
 
-# ---------------- Sticker Generator (Quatly Style) ----------------
-def make_quote_sticker(text: str, out_path="quote.webp"):
-    text = (text or "").strip() or "..."
-    if len(text) > 800:
-        text = text[:800] + "…"
+def _circle_crop(im: Image.Image, size: int):
+    im = im.convert("RGBA").resize((size, size))
+    mask = Image.new("L", (size, size), 0)
+    d = ImageDraw.Draw(mask)
+    d.ellipse((0, 0, size, size), fill=255)
+    out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    out.paste(im, (0, 0), mask)
+    return out
 
+def _gradient_bg(w, h):
+    # Quatly benzeri koyu gradient
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    for y in range(h):
+        r = int(45 + (10 * y / h))
+        g = int(30 + (10 * y / h))
+        b = int(70 + (25 * y / h))
+        d.line([(0, y), (w, y)], fill=(r, g, b, 255))
+    return img
+
+async def make_quatly_sticker(replied_msg, out_path="quote.webp"):
     W, H = 512, 512
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))  # şeffaf arka plan
-    draw = ImageDraw.Draw(img)
+    base = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(base)
 
-    wrapped = "\n".join(textwrap.wrap(text, width=20))
+    # Kart
+    card = _gradient_bg(430, 260)
+    card_x, card_y = 60, 150
 
-    font_size = 72
-    font = _load_font(font_size)
+    # Rounded card mask
+    mask = Image.new("L", card.size, 0)
+    md = ImageDraw.Draw(mask)
+    md.rounded_rectangle((0, 0, card.size[0], card.size[1]), radius=48, fill=255)
+    base.paste(card, (card_x, card_y), mask)
 
-    while font_size > 20:
-        bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, spacing=10)
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
+    # Avatar (replied message sender)
+    avatar_size = 110
+    sender = await replied_msg.get_sender()
 
-        if tw <= 420 and th <= 360:
-            break
+    pfp_io = BytesIO()
+    downloaded = await client.download_profile_photo(sender, file=pfp_io)
 
-        font_size -= 4
-        font = _load_font(font_size)
+    if downloaded:
+        pfp_io.seek(0)
+        avatar_img = Image.open(pfp_io)
+    else:
+        avatar_img = Image.new("RGB", (avatar_size, avatar_size), (90, 90, 90))
 
-    pad_x, pad_y = 36, 30
-    box_w = min(460, tw + pad_x * 2)
-    box_h = min(420, th + pad_y * 2)
+    avatar_img = _circle_crop(avatar_img, avatar_size)
+    base.paste(avatar_img, (65, 70), avatar_img)
 
-    x1 = (W - box_w) // 2
-    y1 = (H - box_h) // 2
-    x2 = x1 + box_w
-    y2 = y1 + box_h
+    # Text
+    name = getattr(sender, "first_name", None) or "User"
+    name_font = _load_font(56, bold=True)
 
-    draw.rounded_rectangle((x1, y1, x2, y2), radius=42, fill=(255, 255, 255, 235))
-    draw.rounded_rectangle((x1+2, y1+2, x2+2, y2+2), radius=42, outline=(0, 0, 0, 25), width=2)
+    msg = (replied_msg.raw_text or "").strip()
+    if len(msg) > 140:
+        msg = msg[:140] + "…"
 
-    text_x = (W - tw) // 2
-    text_y = (H - th) // 2
+    msg_font = _load_font(44, bold=False)
+    wrapped = "\n".join(textwrap.wrap(msg, width=14))
 
-    draw.multiline_text((text_x, text_y), wrapped, font=font, fill=(0, 0, 0, 255),
-                        spacing=10, align="center")
+    # Draw name + message
+    name_x = card_x + 30
+    name_y = card_y + 35
+    draw.text((name_x, name_y), name, font=name_font, fill=(255, 170, 60, 255))
 
-    img.save(out_path, "WEBP", quality=95, method=6)
+    draw.multiline_text(
+        (name_x, name_y + 85),
+        wrapped,
+        font=msg_font,
+        fill=(255, 255, 255, 255),
+        spacing=10
+    )
+
+    base.save(out_path, "WEBP", quality=95, method=6)
 
 # ---------------- Commands ----------------
 @client.on(events.NewMessage(pattern=r"(?i)^\.(ping)\s*$"))
@@ -80,6 +116,10 @@ async def cmd_ping(event):
     if not is_owner(event):
         return
     await event.reply("pong ✅")
+
+@client.on(events.NewMessage(pattern=r"(?i)^\.(id)\s*$"))
+async def cmd_id(event):
+    await event.reply(f"🆔 ID: `{event.sender_id}`")
 
 @client.on(events.NewMessage(pattern=r"(?i)^\.(q)\s*$"))
 async def cmd_q(event):
@@ -90,16 +130,15 @@ async def cmd_q(event):
         return await event.reply("Bir mesaja yanıt verip `.q` yaz ✅")
 
     replied = await event.get_reply_message()
-    text = (replied.raw_text or "").strip()
+    msg = (replied.raw_text or "").strip()
 
-    if not text:
+    if not msg:
         return await event.reply("Bu mesajda metin yok 😅")
 
     await event.reply("✅ Sticker hazırlanıyor...")
 
     out_path = "quote.webp"
-    make_quote_sticker(text, out_path=out_path)
-
+    await make_quatly_sticker(replied, out_path=out_path)
     await client.send_file(event.chat_id, out_path, force_document=False)
 
 # ---------------- Start ----------------
