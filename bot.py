@@ -89,52 +89,88 @@ async def cmd_q(event):
     await client.send_file(event.chat_id, sticker_msg, force_document=False)
     await status.delete()
 
+def _add_sticker_to_set(user_id: int, name: str, png_sticker_path: str, emoji="😄"):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/addStickerToSet"
+    with open(png_sticker_path, "rb") as f:
+        files = {"png_sticker": f}
+        data = {"user_id": user_id, "name": name, "emojis": emoji}
+        return requests.post(url, data=data, files=files, timeout=60).json()
 
-# ✅ Dizla: Sticker pack oluştur
-@client.on(events.NewMessage(pattern=r"(?i)^\.(dızla|dizla)\s*$"))
+def _sticker_set_exists(name: str) -> bool:
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getStickerSet"
+    r = requests.get(url, params={"name": name}, timeout=30).json()
+    return r.get("ok", False)
+@client.on(events.NewMessage(pattern=r"(?i)^\.(dızla|dizla)(?:\s+(.+))?\s*$"))
 async def cmd_dizla(event):
     if not is_owner(event):
         return
 
     if not BOT_TOKEN:
-        return await event.reply("❌ BOT_TOKEN yok! BotFather tokenini Railway Variables'a ekle.")
+        return await event.reply("❌ BOT_TOKEN yok! Railway Variables'a ekle.")
 
     if not event.is_reply:
-        return await event.reply("Bir **sticker'a** yanıt verip `.dizla` yaz 😄")
+        return await event.reply("Bir **sticker'a** yanıt verip `.dizla 1` veya `.dizla meme` yaz 😄")
 
     replied = await event.get_reply_message()
     if not replied.sticker:
         return await event.reply("❌ Sticker'a reply yapmalısın.")
 
-    status = await event.reply("🛠️ Stickerini çalışıyorum...")
+    # ✅ hangi pack?
+    arg = (event.pattern_match.group(2) or "").strip().lower()
+    if not arg:
+        arg = "1"  # default
 
-    # Sticker indir (webp)
+    # sadece güvenli anahtar olsun
+    allowed = {"1", "2", "3", "meme", "funny", "okul"}
+    if arg not in allowed:
+        return await event.reply("❌ Pack adı geçersiz. Örn: `.dizla 1` / `.dizla meme`")
+
+    # ENV’deki pack name key’i
+    env_key = f"PACK_{arg.upper()}"
+    pack_name_saved = os.getenv(env_key, "").strip()
+
+    status = await event.reply(f"🛠️ Stickerini çalışıyorum... (pack: {arg})")
+
+    # sticker indir
     webp_path = await client.download_media(replied, file="in.webp")
-
-    # Webp -> PNG
     im = Image.open(webp_path).convert("RGBA")
     png_path = "sticker.png"
     im.save(png_path, "PNG")
 
-    # ✅ pack name mutlaka _by_<BOT_USERNAME> ile bitmeli
-    try:
-        bot_username = _get_bot_username()
-    except Exception as e:
-        return await status.edit(f"❌ BOT_USERNAME alınamadı: {e}")
+    bot_username = _get_bot_username()
 
-    suffix = _rand_pack_suffix(10)
-    pack_name = f"dizla_{suffix}_by_{bot_username}".lower()  # ✅ doğru format
-    pack_title = f"Abdullah Dizla Pack {suffix} 😄"
-
-    res = _create_sticker_set(OWNER_ID, pack_name, pack_title, png_path, emoji="😄")
-
-    if not res.get("ok"):
-        err = res.get("description", "Bilinmeyen hata")
-        return await status.edit(f"❌ Paket oluşturulamadı: {err}")
+    # ✅ Pack name belirle
+    if pack_name_saved:
+        pack_name = pack_name_saved
+    else:
+        # ilk kez => yeni pack üret
+        suffix = _rand_pack_suffix(10)
+        pack_name = f"dizla_{arg}_{suffix}_by_{bot_username}".lower()
 
     pack_link = f"https://t.me/addstickers/{pack_name}"
-    await status.edit(f"✅ Paket oluşturuldu!\n🔗 {pack_link}")
+    pack_title = f"Abdullah Dizla - {arg.upper()} 😄"
 
+    # ✅ pack varsa sticker ekle, yoksa oluştur
+    if _sticker_set_exists(pack_name):
+        res = _add_sticker_to_set(OWNER_ID, pack_name, png_path, emoji="😄")
+        if not res.get("ok"):
+            err = res.get("description", "Bilinmeyen hata")
+            return await status.edit(f"❌ Pack'e eklenemedi: {err}")
+
+        return await status.edit(f"✅ Sticker pack'e eklendi! ({arg})\n🔗 {pack_link}")
+
+    else:
+        res = _create_sticker_set(OWNER_ID, pack_name, pack_title, png_path, emoji="😄")
+        if not res.get("ok"):
+            err = res.get("description", "Bilinmeyen hata")
+            return await status.edit(f"❌ Paket oluşturulamadı: {err}")
+
+        # ✅ İlk oluşturduğunda ENV’ye kaydetmesi için pack name’i kullanıcıya söyle
+        return await status.edit(
+            f"✅ Paket oluşturuldu! ({arg})\n🔗 {pack_link}\n\n"
+            f"📌 Sabitlemek için Railway Variables'a şunu ekle:\n"
+            f"{env_key}={pack_name}"
+        )
 
 # ---------------- Start ----------------
 client.start()
