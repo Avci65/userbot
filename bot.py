@@ -58,12 +58,23 @@ def _create_sticker_set(user_id: int, name: str, title: str, png_sticker_path: s
         files = {"png_sticker": f}
         data = {"user_id": user_id, "name": name, "title": title, "emojis": emoji}
         return requests.post(url, data=data, files=files, timeout=60).json()
-def _delete_sticker(file_id: str):
+def _delete_sticker_botapi(file_id: str):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteStickerFromSet"
     return requests.post(url, data={"sticker": file_id}, timeout=30).json()
 
 
+
 # ---------------- Commands ----------------
+BOT_USERNAME_CACHE = None
+
+def _get_bot_username_cached():
+    global BOT_USERNAME_CACHE
+    if BOT_USERNAME_CACHE:
+        return BOT_USERNAME_CACHE
+    r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=30).json()
+    BOT_USERNAME_CACHE = r["result"]["username"]
+    return BOT_USERNAME_CACHE
+
 @client.on(events.NewMessage(pattern=r"(?i)^\.(sil)(?:\s+(.+))?\s*$"))
 async def cmd_sil(event):
     if not is_owner(event):
@@ -79,43 +90,48 @@ async def cmd_sil(event):
         return await event.reply("Silmek istediğin **sticker'a reply** yapıp `.sil 1` yaz.")
 
     replied = await event.get_reply_message()
-
     if not replied.sticker:
-        return await event.reply("❌ Bu bir sticker değil. Sticker'a reply yap.")
+        return await event.reply("❌ Sticker'a reply yapmalısın.")
 
-    pack_key = (event.pattern_match.group(2) or "").strip().lower()
-    if not pack_key:
-        pack_key = "1"
-
+    pack_key = (event.pattern_match.group(2) or "").strip().lower() or "1"
     pack_name = redis_get_pack(pack_key)
     if not pack_name:
         return await event.reply(f"❌ Pack bulunamadı: {pack_key}")
 
-    # sticker file_id
-    file_id = None
-
-    try:
-        # Telethon sticker dokümanı içinden file_id alma
-        if replied.document and replied.document.attributes:
-            file_id = replied.document.id
-    except:
-        pass
-
-    # En sağlam yol: Bot API'nin istediği file_id Telethon'da "file.id" değil.
-    # Bu yüzden sticker'ı bot API ile tekrar getFile üzerinden çözeceğiz:
-    # ✅ Çözüm: replied.sticker içinden "file_id" almak için raw
-    try:
-        file_id = replied.media.document.attributes[0].stickerset  # bazen burdan gelmez
-    except:
-        pass
-
-    # ✅ En garanti yöntem: bot API'ye aynı sticker'ı göndermek file_id üretmek
-    # fakat bizde zaten sticker msg var:
-    bot_file_id = replied.file.id
-
     status = await event.reply("🗑️ Sticker siliniyor...")
 
-    res = _delete_sticker(bot_file_id)
+    # ✅ reply edilen stickerı botumuza DM at
+    bot_username = _get_bot_username_cached()
+    bot_entity = await client.get_entity(bot_username)
+
+    sent = await client.send_file(bot_entity, replied)
+
+    # botun DM'inden son mesajı alıp file_id çıkar
+    await asyncio.sleep(1)
+    msgs = await client.get_messages(bot_entity, limit=1)
+    last = msgs[0]
+
+    if not last.sticker:
+        return await status.edit("❌ Bot DM'den sticker file_id alınamadı.")
+
+    # ✅ Bot API sticker file_id
+    file_id = last.document.attributes[1].stickerset  # bazen yok
+    try:
+        # Telethon file.id çoğu zaman BotAPI file_id olmaz
+        # Sticker file_id bot API formatı: last.file.id değil,
+        # En güvenlisi: message üzerinden raw (document) file_reference
+        file_id = last.media.document.attributes
+    except:
+        pass
+
+    # ✅ En net yol: Bot API'den update çekemiyoruz burada,
+    # ama telethon last.document.id değil, "InputDocument" da değil.
+    # Bu yüzden sticker file_id için Bot API yöntemini kullanacağız:
+    # -> bot DM'deki stickerı Bot API ile getFile yapmaya gerek yok.
+    # -> Telethon "last.file.id" genelde BotAPI için çalışır DM'de.
+    bot_file_id = last.file.id
+
+    res = _delete_sticker_botapi(bot_file_id)
 
     if not res.get("ok"):
         err = res.get("description", "Bilinmeyen hata")
