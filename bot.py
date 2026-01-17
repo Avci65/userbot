@@ -132,7 +132,8 @@ async def cmd_dizla(event):
     pack_title = f"Abdullah Dizla Pack {suffix} 😄"
 
     # 4) Sticker set oluştur
-    res = _create_sticker_set(event.sender_id, pack_name, pack_title, png_path, emoji="😄")
+    res = _create_sticker_set(OWNER_ID, pack_name, pack_title, png_path, emoji="😄")
+
 
     if not res.get("ok"):
         # Eğer set var vs ise hata verir
