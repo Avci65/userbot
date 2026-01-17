@@ -118,22 +118,28 @@ botapi_delete_webhook()
 # ---------------- Commands ----------------
 
 # ✅ .q (ilk çalışan mantık birebir)
-@client.on(events.NewMessage(pattern=r"(?i)^\.(q)(?:\s+(.+))?\s*$"))
+@client.on(events.NewMessage(pattern=r"(?i)^\.(q)(?:\s+(\d+))?\s*$"))
 async def cmd_q(event):
     if not is_owner(event):
         return
 
     if not event.is_reply:
-        return await event.reply("Bir mesaja yanıt verip `.q` yaz ✅\nÖrn: `.q` / `.q r`")
+        return await event.reply("Bir mesaja yanıt verip `.q` yaz ✅\nÖrn: `.q` / `.q 3`")
 
     replied = await event.get_reply_message()
-    arg = (event.pattern_match.group(2) or "").strip().lower()
+
+    # sayı argümanı
+    n_str = event.pattern_match.group(2)
+    n = int(n_str) if n_str else 1
+    if n < 1:
+        n = 1
+    if n > 10:
+        n = 10  # limit
 
     status = await event.reply("✅ QuotLy sticker hazırlanıyor...")
     bot_entity = await client.get_entity(QUOTLY_BOT)
 
-    async def wait_for_sticker(min_id: int, timeout=40):
-        sticker_msg = None
+    async def wait_for_sticker(min_id: int, timeout=45):
         for _ in range(int(timeout / 0.5)):
             await asyncio.sleep(0.5)
             msgs = await client.get_messages(bot_entity, min_id=min_id, limit=30)
@@ -142,34 +148,39 @@ async def cmd_q(event):
                     return m
         return None
 
-    # ✅ .q r  → gerçek reply UI
-    if arg == "r" and replied.is_reply:
-        quoted = await replied.get_reply_message()
-        if quoted:
-            # 1) quoted mesajı bot'a gönder
-            q_text = (quoted.raw_text or "").strip() or " "
-            m1 = await client.send_message(bot_entity, q_text)
+    # ✅ TEK MESAJ (.q)
+    if n == 1:
+        fwd = await client.forward_messages(bot_entity, replied)
+        fwd_id = fwd.id if hasattr(fwd, "id") else fwd[0].id
 
-            # 2) replied mesajı reply_to ile gönder
-            r_text = (replied.raw_text or "").strip() or " "
-            m2 = await client.send_message(bot_entity, r_text, reply_to=m1.id)
+        sticker = await wait_for_sticker(fwd_id)
+        if not sticker:
+            return await status.edit("❌ QuotLy sticker göndermedi. (45sn)")
 
-            # 3) sticker bekle
-            sticker = await wait_for_sticker(m2.id)
-            if not sticker:
-                return await status.edit("❌ QuotLy sticker göndermedi. (40sn)")
+        await client.send_file(event.chat_id, sticker, force_document=False)
+        await status.delete()
+        return
 
-            await client.send_file(event.chat_id, sticker, force_document=False)
-            await status.delete()
-            return
+    # ✅ ÇOKLU MESAJ (.q 3 gibi)
+    start_id = replied.id
 
-    # ✅ normal .q
-    fwd = await client.forward_messages(bot_entity, replied)
-    fwd_id = fwd.id if hasattr(fwd, "id") else fwd[0].id
+    # replied dahil sonraki mesajlar (n adet)
+    msgs = await client.get_messages(event.chat_id, min_id=start_id - 1, limit=n + 15)
+    msgs = sorted(msgs, key=lambda m: m.id)
+    msgs = [m for m in msgs if m.id >= start_id][:n]
 
-    sticker = await wait_for_sticker(fwd_id)
+    if len(msgs) == 0:
+        return await status.edit("❌ Mesaj bulunamadı.")
+
+    fwd_list = await client.forward_messages(bot_entity, msgs)
+    if isinstance(fwd_list, list) and len(fwd_list) > 0:
+        last_fwd_id = fwd_list[-1].id
+    else:
+        last_fwd_id = fwd_list.id if hasattr(fwd_list, "id") else start_id
+
+    sticker = await wait_for_sticker(last_fwd_id)
     if not sticker:
-        return await status.edit("❌ QuotLy sticker göndermedi. (40sn)")
+        return await status.edit("❌ QuotLy sticker göndermedi. (45sn)")
 
     await client.send_file(event.chat_id, sticker, force_document=False)
     await status.delete()
