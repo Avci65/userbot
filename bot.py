@@ -58,8 +58,70 @@ def _create_sticker_set(user_id: int, name: str, title: str, png_sticker_path: s
         files = {"png_sticker": f}
         data = {"user_id": user_id, "name": name, "title": title, "emojis": emoji}
         return requests.post(url, data=data, files=files, timeout=60).json()
+def _delete_sticker(file_id: str):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteStickerFromSet"
+    return requests.post(url, data={"sticker": file_id}, timeout=30).json()
+
 
 # ---------------- Commands ----------------
+@client.on(events.NewMessage(pattern=r"(?i)^\.(sil)(?:\s+(.+))?\s*$"))
+async def cmd_sil(event):
+    if not is_owner(event):
+        return
+
+    if not BOT_TOKEN:
+        return await event.reply("❌ BOT_TOKEN yok!")
+
+    if not rdb:
+        return await event.reply("❌ Redis bağlı değil!")
+
+    if not event.is_reply:
+        return await event.reply("Silmek istediğin **sticker'a reply** yapıp `.sil 1` yaz.")
+
+    replied = await event.get_reply_message()
+
+    if not replied.sticker:
+        return await event.reply("❌ Bu bir sticker değil. Sticker'a reply yap.")
+
+    pack_key = (event.pattern_match.group(2) or "").strip().lower()
+    if not pack_key:
+        pack_key = "1"
+
+    pack_name = redis_get_pack(pack_key)
+    if not pack_name:
+        return await event.reply(f"❌ Pack bulunamadı: {pack_key}")
+
+    # sticker file_id
+    file_id = None
+
+    try:
+        # Telethon sticker dokümanı içinden file_id alma
+        if replied.document and replied.document.attributes:
+            file_id = replied.document.id
+    except:
+        pass
+
+    # En sağlam yol: Bot API'nin istediği file_id Telethon'da "file.id" değil.
+    # Bu yüzden sticker'ı bot API ile tekrar getFile üzerinden çözeceğiz:
+    # ✅ Çözüm: replied.sticker içinden "file_id" almak için raw
+    try:
+        file_id = replied.media.document.attributes[0].stickerset  # bazen burdan gelmez
+    except:
+        pass
+
+    # ✅ En garanti yöntem: bot API'ye aynı sticker'ı göndermek file_id üretmek
+    # fakat bizde zaten sticker msg var:
+    bot_file_id = replied.file.id
+
+    status = await event.reply("🗑️ Sticker siliniyor...")
+
+    res = _delete_sticker(bot_file_id)
+
+    if not res.get("ok"):
+        err = res.get("description", "Bilinmeyen hata")
+        return await status.edit(f"❌ Silinemedi: {err}")
+
+    await status.edit(f"✅ Sticker silindi! (pack: {pack_key})")
 
 # ✅ QuotLy Sticker
 @client.on(events.NewMessage(pattern=r"(?i)^\.(q)\s*$"))
