@@ -58,24 +58,24 @@ async def make_quatly_sticker(replied_msg, out_path="quote.webp"):
     base = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(base)
 
-    # ---- Kart ölçüsü (daha iyi oran) ----
-    card_w, card_h = 460, 300
+    # Kart (daha dolgun)
+    card_w, card_h = 470, 280
     card_x = (W - card_w) // 2
     card_y = (H - card_h) // 2
 
     card = _gradient_bg(card_w, card_h)
 
-    # Rounded mask
     mask = Image.new("L", (card_w, card_h), 0)
     md = ImageDraw.Draw(mask)
-    md.rounded_rectangle((0, 0, card_w, card_h), radius=55, fill=255)
-
+    md.rounded_rectangle((0, 0, card_w, card_h), radius=60, fill=255)
     base.paste(card, (card_x, card_y), mask)
 
-    # ---- Avatar ----
-    avatar_size = 96
+    # ---- Sender ----
     sender = await replied_msg.get_sender()
+    name = getattr(sender, "first_name", None) or "User"
 
+    # ---- Avatar ----
+    avatar_size = 88
     pfp_io = BytesIO()
     downloaded = await client.download_profile_photo(sender, file=pfp_io)
 
@@ -87,35 +87,39 @@ async def make_quatly_sticker(replied_msg, out_path="quote.webp"):
 
     avatar_img = _circle_crop(avatar_img, avatar_size)
 
-    # Avatar kartın içine
-    avatar_x = card_x + 30
-    avatar_y = card_y + 26
+    avatar_x = card_x + 26
+    avatar_y = card_y + 24
     base.paste(avatar_img, (avatar_x, avatar_y), avatar_img)
 
-    # ---- İsim ----
-    name = getattr(sender, "first_name", None) or "User"
-    name_font = _load_font(46, bold=True)
-
-    name_x = avatar_x + avatar_size + 22
+    # ---- Name (küçük ama net) ----
+    name_font = _load_font(40, bold=True)
+    name_x = avatar_x + avatar_size + 18
     name_y = avatar_y + 18
+
     draw.text((name_x, name_y), name, font=name_font, fill=(255, 170, 60, 255))
 
-    # ---- Mesaj ----
+    # ---- Message (büyük + ortalı) ----
     msg = (replied_msg.raw_text or "").strip()
-    if len(msg) > 300:
-        msg = msg[:300] + "…"
+    if len(msg) > 280:
+        msg = msg[:280] + "…"
 
-    # ✅ mesaj için otomatik font
-    # kısa mesaj => büyük font, uzun mesaj => küçült
-    font_size = 64
-    msg_font = _load_font(font_size, bold=False)
+    # Kısa mesaj => çok büyük
+    # Uzun mesaj => biraz küçült ama asla aşırı küçülmesin
+    font_size = 80 if len(msg) <= 10 else 68
+    min_font = 48
 
     max_w = card_w - 60
-    max_h = card_h - 140
+    max_h = card_h - 120
 
-    while font_size > 26:
+    def wrap_for_font(font):
+        # font büyüyünce satır daha kısa olmalı
+        width = 12 if font_size >= 72 else 16
+        return "\n".join(textwrap.wrap(msg, width=width))
+
+    while font_size >= min_font:
         msg_font = _load_font(font_size, bold=False)
-        wrapped = "\n".join(textwrap.wrap(msg, width=18))
+        wrapped = wrap_for_font(msg_font)
+
         bbox = draw.multiline_textbbox((0, 0), wrapped, font=msg_font, spacing=10)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
@@ -125,9 +129,9 @@ async def make_quatly_sticker(replied_msg, out_path="quote.webp"):
 
         font_size -= 4
 
-    # mesajı kartın ortasına yakın yerleştir
-    msg_x = card_x + 30
-    msg_y = card_y + 130
+    # Mesaj ortalama
+    msg_x = card_x + (card_w - tw) // 2
+    msg_y = card_y + 120 + (max_h - th) // 2
 
     draw.multiline_text(
         (msg_x, msg_y),
@@ -135,7 +139,7 @@ async def make_quatly_sticker(replied_msg, out_path="quote.webp"):
         font=msg_font,
         fill=(255, 255, 255, 255),
         spacing=10,
-        align="left"
+        align="center"
     )
 
     base.save(out_path, "WEBP", quality=95, method=6)
