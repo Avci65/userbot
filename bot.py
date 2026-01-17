@@ -21,76 +21,84 @@ if API_ID == 0 or not API_HASH or not SESSION_STRING:
     raise ValueError("API_ID / API_HASH / SESSION_STRING ortam değişkenleri eksik!")
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
-
+def _load_font(size: int):
+    # Railway'de genelde DejaVuSans bulunur
+    try:
+        return ImageFont.truetype("DejaVuSans.ttf", size)
+    except:
+        return ImageFont.load_default()
 # ---------------- Sticker Generator ----------------
 def make_quote_sticker(text: str, out_path="quote.webp"):
     text = (text or "").strip() or "..."
-    if len(text) > 700:
-        text = text[:700] + "…"
+    if len(text) > 800:
+        text = text[:800] + "…"
 
     W, H = 512, 512
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))  # ✅ tamamen şeffaf arka plan
     draw = ImageDraw.Draw(img)
 
-    pad = 40
-    box = (pad, pad, W - pad, H - pad)
-    draw.rounded_rectangle(box, radius=40, fill=(20, 20, 20, 230))
+    # Metni satırlara böl (kısa metinler daha az satır)
+    # width değeri satır uzunluğunu belirler
+    wrapped = "\n".join(textwrap.wrap(text, width=20))
 
-    try:
-        font = ImageFont.truetype("DejaVuSans.ttf", 36)
-    except:
-        font = ImageFont.load_default()
+    # ✅ Otomatik font büyüklüğü: metin sığana kadar küçült
+    font_size = 72  # başlangıç büyük
+    font = _load_font(font_size)
 
-    wrapped = "\n".join(textwrap.wrap(text, width=22))
+    while font_size > 20:
+        bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, spacing=10)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
 
-    bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, spacing=8)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-    x = (W - tw) // 2
-    y = (H - th) // 2
+        # metin alanı
+        max_w = 420
+        max_h = 360
+        if tw <= max_w and th <= max_h:
+            break
 
+        font_size -= 4
+        font = _load_font(font_size)
+
+    # Balon ölçüsü
+    pad_x, pad_y = 36, 30
+    box_w = min(460, tw + pad_x * 2)
+    box_h = min(420, th + pad_y * 2)
+
+    x1 = (W - box_w) // 2
+    y1 = (H - box_h) // 2
+    x2 = x1 + box_w
+    y2 = y1 + box_h
+
+    # ✅ Quatly benzeri açık balon
+    draw.rounded_rectangle(
+        (x1, y1, x2, y2),
+        radius=42,
+        fill=(255, 255, 255, 235)  # beyaz balon
+    )
+
+    # balon gölgesi efekti (hafif)
+    draw.rounded_rectangle(
+        (x1+2, y1+2, x2+2, y2+2),
+        radius=42,
+        outline=(0, 0, 0, 25),
+        width=2
+    )
+
+    # Metin ortalama
+    text_x = (W - tw) // 2
+    text_y = (H - th) // 2
+
+    # ✅ siyah metin
     draw.multiline_text(
-        (x, y),
+        (text_x, text_y),
         wrapped,
         font=font,
-        fill=(255, 255, 255, 255),
-        spacing=8,
-        align="center",
+        fill=(0, 0, 0, 255),
+        spacing=10,
+        align="center"
     )
 
     img.save(out_path, "WEBP", quality=95, method=6)
-
-# ---------------- Commands ----------------
-@client.on(events.NewMessage(pattern=r"(?i)^\.(id)\s*$"))
-async def cmd_id(event):
-    # İstersen bunu da owner-only yapabiliriz ama genelde 1 kere lazım.
-    await event.reply(f"🆔 ID: `{event.sender_id}`")
-
-@client.on(events.NewMessage(pattern=r"(?i)^\.(ping)\s*$"))
-async def cmd_ping(event):
-    if not is_owner(event):
-        return
-    await event.reply("pong ✅")
-
-@client.on(events.NewMessage(pattern=r"(?i)^\.(q)\s*$"))
-async def cmd_q(event):
-    if not is_owner(event):
-        return
-
-    if not event.is_reply:
-        return await event.reply("Bir mesaja yanıt verip `.q` yaz ✅")
-
-    replied = await event.get_reply_message()
-    text = (replied.raw_text or "").strip()
-
-    if not text:
-        return await event.reply("Bu mesajda metin yok 😅")
-
-    await event.reply("✅ Sticker hazırlanıyor...")
-
-    out_path = "quote.webp"
-    make_quote_sticker(text, out_path=out_path)
-    await client.send_file(event.chat_id, out_path, force_document=False)
 
 # ---------------- Start ----------------
 client.start()
