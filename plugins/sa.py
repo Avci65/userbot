@@ -1,3 +1,4 @@
+import os
 import asyncio
 from telethon import events
 
@@ -6,8 +7,8 @@ def setup(client):
 
     @client.on(events.NewMessage(pattern=r"(?i)^sa$"))
     async def sa_handler(event):
-        # sadece ben yazınca çalışsın
-        if event.sender_id != int(os.getenv("OWNER_ID", "0")) and os.getenv("OWNER_ID", "0") != "0":
+        OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+        if OWNER_ID != 0 and event.sender_id != OWNER_ID:
             return
 
         print("✅ SA komutu yakalandı")
@@ -17,6 +18,7 @@ def setup(client):
             "S",
             "SA",
             "SEA",
+            "**Selam Almayanın Mq**",
             "🌀Sea",
             "🍃Selam",
             "🔅Sa",
