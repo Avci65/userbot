@@ -7,25 +7,24 @@ def setup(client):
 
     OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 
-    # ✅ HER MESAJI LOG'A BAS (SADECE OWNER)
-    @client.on(events.NewMessage())
-    async def debug_all(event):
-        if OWNER_ID != 0 and event.sender_id != OWNER_ID:
-            return
-        print("DEBUG MSG:", repr(event.raw_text), "out:", event.out, "chat:", event.chat_id)
-
-    # ✅ SA TEST
-    @client.on(events.NewMessage(pattern=r"(?i)^sa$"))
+    @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^sa$"))
     async def sa_handler(event):
         if OWNER_ID != 0 and event.sender_id != OWNER_ID:
             return
 
-        print("✅ SA komutu yakalandı")
-
         animation_interval = 0.4
         animation_chars = [
-            "S", "SA", "SEA","🌀Sea", "🍃Selam", "🔅Sa", "🍁Selammm",
-            "🍃Naber", "🔅Ben Geldim", "**Hoşgeldim**", "**❄️Sea**"
+            "S",
+            "SA",
+            "SEA",
+            "🌀Sea",
+            "🍃Selam",
+            "🔅Sa",
+            "🍁Selammm",
+            "🍃Naber",
+            "🔅Ben Geldim",
+            "**Hoşgeldim**",
+            "**❄️Sea**"
         ]
 
         for ch in animation_chars:
