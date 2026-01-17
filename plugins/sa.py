@@ -1,36 +1,28 @@
 import asyncio
 from telethon import events
 
-async def merkurkedissa(event):
-
-    if event.fwd_from:
-        return
-
-    animation_interval = 0.4
-    animation_ttl = range(0, 12)
-
-    await event.edit("Selamün Aleyküm..🐺")
-
-    animation_chars = [
-        "S",
-        "SA",
-        "SEA",
-        "**Selam Almayanın Mq**",
-        "🌀Sea",
-        "🍃Selam",
-        "🔅Sa",
-        "🍁Selammm",
-        "🍃Naber",
-        "🔅Ben Geldim",
-        "**Hoşgeldim**",
-        "**❄️Sea**"
-    ]
-
-    for i in animation_ttl:
-        await asyncio.sleep(animation_interval)
-        await event.edit(animation_chars[i])
-
 def setup(client):
+    print("✅ sa.py plugin yüklendi")
+
     @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^sa$"))
-    async def handler(event):
-        await merkurkedissa(event)
+    async def sa_handler(event):
+        print("✅ SA komutu yakalandı")
+
+        animation_interval = 0.4
+        animation_chars = [
+            "S",
+            "SA",
+            "SEA",
+            "🌀Sea",
+            "🍃Selam",
+            "🔅Sa",
+            "🍁Selammm",
+            "🍃Naber",
+            "🔅Ben Geldim",
+            "**Hoşgeldim**",
+            "**❄️Sea**"
+        ]
+
+        for ch in animation_chars:
+            await event.edit(ch)
+            await asyncio.sleep(animation_interval)
