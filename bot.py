@@ -22,9 +22,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 REDIS_URL = os.getenv("REDIS_URL", "").strip()
 
 # ---------------- Redis ----------------
-
-
-
 rdb = redis.from_url(REDIS_URL, decode_responses=True) if REDIS_URL else None
 
 def redis_get_pack(pack_key: str):
@@ -44,25 +41,11 @@ def is_owner(event) -> bool:
 if API_ID == 0 or not API_HASH or not SESSION_STRING:
     raise ValueError("API_ID / API_HASH / SESSION_STRING ortam değişkenleri eksik!")
 
+# ✅ TEK CLIENT
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 # ---------------- Bot API Helpers ----------------
 BOT_USERNAME_CACHE = None
-async def send_reply_chain_to_quotly(bot_entity, quoted, replied):
-    """
-    quoted -> önce gönderilir
-    replied -> quoted mesajına reply olarak gönderilir
-    böylece QuotLy gerçek reply quote şeklinde sticker üretir
-    """
-    # 1) quoted mesajı düz metin olarak gönder
-    q_text = (quoted.raw_text or "").strip() or " "
-    sent_q = await client.send_message(bot_entity, q_text)
-
-    # 2) replied mesajını reply olarak gönder
-    r_text = (replied.raw_text or "").strip() or " "
-    sent_r = await client.send_message(bot_entity, r_text, reply_to=sent_q.id)
-
-    return sent_r.id  # min_id için kullanacağız
 
 def _rand_pack_suffix(n=10):
     return "".join(random.choice(string.ascii_lowercase + string.digits) for _ in range(n))
@@ -81,7 +64,6 @@ def _get_bot_username_cached():
     return BOT_USERNAME_CACHE
 
 def botapi_delete_webhook():
-    # getUpdates çalışsın diye
     if not BOT_TOKEN:
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
@@ -115,13 +97,13 @@ def _add_sticker_to_set(user_id: int, name: str, png_sticker_path: str, emoji="�
         data = {"user_id": user_id, "name": name, "emojis": emoji}
         return requests.post(url, data=data, files=files, timeout=60).json()
 
-# ✅ webhook kapat (sil komutu için getUpdates şart)
+# ✅ webhook kapat
 botapi_delete_webhook()
 
 # ---------------- Commands ----------------
 
-# ✅ .q (ilk çalışan mantık birebir)
-@client.on(events.NewMessage(pattern=r"(?i)^\.(q)(?:\s+(\d+))?\s*$"))
+# ✅ .q / .q 3
+@client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(q)(?:\s+(\d+))?\s*$"))
 async def cmd_q(event):
     if not is_owner(event):
         return
@@ -131,13 +113,12 @@ async def cmd_q(event):
 
     replied = await event.get_reply_message()
 
-    # sayı argümanı
     n_str = event.pattern_match.group(2)
     n = int(n_str) if n_str else 1
     if n < 1:
         n = 1
     if n > 10:
-        n = 10  # limit
+        n = 10
 
     status = await event.reply("✅ QuotLy sticker hazırlanıyor...")
     bot_entity = await client.get_entity(QUOTLY_BOT)
@@ -151,7 +132,6 @@ async def cmd_q(event):
                     return m
         return None
 
-    # ✅ TEK MESAJ (.q)
     if n == 1:
         fwd = await client.forward_messages(bot_entity, replied)
         fwd_id = fwd.id if hasattr(fwd, "id") else fwd[0].id
@@ -164,22 +144,16 @@ async def cmd_q(event):
         await status.delete()
         return
 
-    # ✅ ÇOKLU MESAJ (.q 3 gibi)
     start_id = replied.id
-
-    # replied dahil sonraki mesajlar (n adet)
     msgs = await client.get_messages(event.chat_id, min_id=start_id - 1, limit=n + 15)
     msgs = sorted(msgs, key=lambda m: m.id)
     msgs = [m for m in msgs if m.id >= start_id][:n]
 
-    if len(msgs) == 0:
+    if not msgs:
         return await status.edit("❌ Mesaj bulunamadı.")
 
     fwd_list = await client.forward_messages(bot_entity, msgs)
-    if isinstance(fwd_list, list) and len(fwd_list) > 0:
-        last_fwd_id = fwd_list[-1].id
-    else:
-        last_fwd_id = fwd_list.id if hasattr(fwd_list, "id") else start_id
+    last_fwd_id = fwd_list[-1].id if isinstance(fwd_list, list) else fwd_list.id
 
     sticker = await wait_for_sticker(last_fwd_id)
     if not sticker:
@@ -189,8 +163,8 @@ async def cmd_q(event):
     await status.delete()
 
 
-# ✅ .dizla / .dızla (Redis ile sabit pack)
-@client.on(events.NewMessage(pattern=r"(?i)^\.(dızla|dizla)(?:\s+(.+))?\s*$"))
+# ✅ .dizla / .dızla
+@client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(dızla|dizla)(?:\s+(.+))?\s*$"))
 async def cmd_dizla(event):
     if not is_owner(event):
         return
@@ -209,7 +183,7 @@ async def cmd_dizla(event):
         return await event.reply("❌ Sticker'a reply yapmalısın.")
 
     arg = (event.pattern_match.group(2) or "").strip().lower() or "1"
-    status = await event.reply(f"🛠️ Stickerini çalıyorum...:DD (pack: {arg})")
+    status = await event.reply(f"🛠️ Sticker ekleniyor... (pack: {arg})")
 
     webp_path = await client.download_media(replied, file="in.webp")
     im = Image.open(webp_path).convert("RGBA")
@@ -219,7 +193,6 @@ async def cmd_dizla(event):
     bot_username = _get_bot_username_cached()
     pack_name = redis_get_pack(arg)
 
-    # Pack varsa ekle
     if pack_name:
         res = _add_sticker_to_set(OWNER_ID, pack_name, png_path, emoji="😄")
         if not res.get("ok"):
@@ -229,7 +202,6 @@ async def cmd_dizla(event):
         pack_link = f"https://t.me/addstickers/{pack_name}"
         return await status.edit(f"✅ Sticker eklendi! ({arg})\n🔗 {pack_link}")
 
-    # Pack yoksa oluştur
     suffix = _rand_pack_suffix(10)
     pack_name = f"dizla_{arg}_{suffix}_by_{bot_username}".lower()
     pack_title = f"Abdullah Dizla - {arg.upper()} 😄"
@@ -244,8 +216,8 @@ async def cmd_dizla(event):
     return await status.edit(f"✅ Paket oluşturuldu ve kaydedildi! ({arg})\n🔗 {pack_link}")
 
 
-# ✅ .sil / .sil 1 (bot updates ile %100 file_id)
-@client.on(events.NewMessage(pattern=r"(?i)^\.(sil)(?:\s+(.+))?\s*$"))
+# ✅ .sil
+@client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(sil)(?:\s+(.+))?\s*$"))
 async def cmd_sil(event):
     if not is_owner(event):
         return
@@ -262,20 +234,17 @@ async def cmd_sil(event):
 
     status = await event.reply("🗑️ Sticker siliniyor...")
 
-    # 1) mevcut update offset al
     up = botapi_get_updates()
     last_update_id = 0
     if up.get("ok") and up.get("result"):
         last_update_id = up["result"][-1]["update_id"]
 
-    # 2) stickerı bot'a DM at
     bot_username = _get_bot_username_cached()
     bot_entity = await client.get_entity(bot_username)
     await client.send_file(bot_entity, replied)
 
-    # 3) bot getUpdates içinden sticker file_id yakala
     sticker_file_id = None
-    for _ in range(30):  # 15sn
+    for _ in range(30):
         await asyncio.sleep(0.5)
         res = botapi_get_updates(offset=last_update_id + 1)
         if not res.get("ok"):
@@ -286,27 +255,24 @@ async def cmd_sil(event):
             if msg and "sticker" in msg:
                 sticker_file_id = msg["sticker"]["file_id"]
                 break
-
         if sticker_file_id:
             break
 
     if not sticker_file_id:
         return await status.edit("❌ file_id alınamadı. (getUpdates boş olabilir)")
 
-    # 4) sil
     del_res = botapi_delete_sticker(sticker_file_id)
     if not del_res.get("ok"):
         err = del_res.get("description", "Bilinmeyen hata")
         return await status.edit(f"❌ Silinemedi: {err}")
 
     await status.edit("✅ Sticker silindi!")
-client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
+
+# ---------------- Plugin: SA ----------------
 from plugins.sa import setup as sa_setup
 sa_setup(client)
 
-client.start()
-client.run_until_disconnected()
 # ---------------- Start ----------------
 client.start()
 print("✅ Userbot başladı")
