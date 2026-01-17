@@ -4,26 +4,26 @@ from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from PIL import Image, ImageDraw, ImageFont
 
+# ---------------- ENV ----------------
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH", "").strip()
 
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 SESSION_STRING = SESSION_STRING.replace("\n", "").replace("\r", "").strip()
 
-OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+OWNER_ID = int(os.getenv("OWNER_ID", "0"))  # Railway Variables'a eklenecek
 
-def is_owner(event):
-    return OWNER_ID == 0 or event.sender_id == OWNER_ID
+def is_owner(event) -> bool:
+    return OWNER_ID != 0 and event.sender_id == OWNER_ID
 
 if API_ID == 0 or not API_HASH or not SESSION_STRING:
     raise ValueError("API_ID / API_HASH / SESSION_STRING ortam değişkenleri eksik!")
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
-# ---------- STICKER FONKSİYONU ----------
+# ---------------- Sticker Generator ----------------
 def make_quote_sticker(text: str, out_path="quote.webp"):
     text = (text or "").strip() or "..."
-
     if len(text) > 700:
         text = text[:700] + "…"
 
@@ -54,20 +54,25 @@ def make_quote_sticker(text: str, out_path="quote.webp"):
         font=font,
         fill=(255, 255, 255, 255),
         spacing=8,
-        align="center"
+        align="center",
     )
 
     img.save(out_path, "WEBP", quality=95, method=6)
 
-# ---------- KOMUTLAR ----------
+# ---------------- Commands ----------------
+@client.on(events.NewMessage(pattern=r"(?i)^\.(id)\s*$"))
+async def cmd_id(event):
+    # İstersen bunu da owner-only yapabiliriz ama genelde 1 kere lazım.
+    await event.reply(f"🆔 ID: `{event.sender_id}`")
+
 @client.on(events.NewMessage(pattern=r"(?i)^\.(ping)\s*$"))
-async def ping(event):
+async def cmd_ping(event):
     if not is_owner(event):
         return
     await event.reply("pong ✅")
 
 @client.on(events.NewMessage(pattern=r"(?i)^\.(q)\s*$"))
-async def quote_sticker(event):
+async def cmd_q(event):
     if not is_owner(event):
         return
 
@@ -84,10 +89,9 @@ async def quote_sticker(event):
 
     out_path = "quote.webp"
     make_quote_sticker(text, out_path=out_path)
-
     await client.send_file(event.chat_id, out_path, force_document=False)
 
-# ---------- START ----------
+# ---------------- Start ----------------
 client.start()
 print("✅ Userbot başladı")
 client.run_until_disconnected()
