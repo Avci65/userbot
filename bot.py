@@ -8,6 +8,10 @@ import requests
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from PIL import Image
+import redis
+
+REDIS_URL = os.getenv("REDIS_URL", "").strip()
+rdb = redis.from_url(REDIS_URL, decode_responses=True) if REDIS_URL else None
 
 # ---------------- ENV ----------------
 API_ID = int(os.getenv("API_ID", "0"))
@@ -29,6 +33,16 @@ if API_ID == 0 or not API_HASH or not SESSION_STRING:
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 # ---------------- Helpers ----------------
+def redis_get_pack(pack_key: str):
+    if not rdb:
+        return None
+    return rdb.get(f"pack:{pack_key}")
+
+def redis_set_pack(pack_key: str, pack_name: str):
+    if not rdb:
+        return
+    rdb.set(f"pack:{pack_key}", pack_name)
+
 def _rand_pack_suffix(n=10):
     return "".join(random.choice(string.ascii_lowercase + string.digits) for _ in range(n))
 
@@ -108,69 +122,61 @@ async def cmd_dizla(event):
     if not BOT_TOKEN:
         return await event.reply("❌ BOT_TOKEN yok! Railway Variables'a ekle.")
 
+    if not REDIS_URL or not rdb:
+        return await event.reply("❌ REDIS_URL yok! Railway'e Redis service eklemelisin.")
+
     if not event.is_reply:
-        return await event.reply("Bir **sticker'a** yanıt verip `.dizla 1` veya `.dizla meme` yaz 😄")
+        return await event.reply("Sticker'a reply yapıp `.dizla 1` veya `.dizla meme` yaz 😄")
 
     replied = await event.get_reply_message()
     if not replied.sticker:
         return await event.reply("❌ Sticker'a reply yapmalısın.")
 
-    # ✅ hangi pack?
+    # pack key (1, meme vb)
     arg = (event.pattern_match.group(2) or "").strip().lower()
     if not arg:
-        arg = "1"  # default
-
-    # sadece güvenli anahtar olsun
-    allowed = {"1", "2", "3", "meme", "funny", "okul"}
-    if arg not in allowed:
-        return await event.reply("❌ Pack adı geçersiz. Örn: `.dizla 1` / `.dizla meme`")
-
-    # ENV’deki pack name key’i
-    env_key = f"PACK_{arg.upper()}"
-    pack_name_saved = os.getenv(env_key, "").strip()
+        arg = "1"
 
     status = await event.reply(f"🛠️ Stickerini çalışıyorum... (pack: {arg})")
 
     # sticker indir
     webp_path = await client.download_media(replied, file="in.webp")
+
+    # webp -> png
     im = Image.open(webp_path).convert("RGBA")
     png_path = "sticker.png"
     im.save(png_path, "PNG")
 
     bot_username = _get_bot_username()
 
-    # ✅ Pack name belirle
-    if pack_name_saved:
-        pack_name = pack_name_saved
-    else:
-        # ilk kez => yeni pack üret
-        suffix = _rand_pack_suffix(10)
-        pack_name = f"dizla_{arg}_{suffix}_by_{bot_username}".lower()
+    # ✅ Pack adı Redis'ten çek
+    pack_name = redis_get_pack(arg)
 
-    pack_link = f"https://t.me/addstickers/{pack_name}"
-    pack_title = f"Abdullah Dizla - {arg.upper()} 😄"
-
-    # ✅ pack varsa sticker ekle, yoksa oluştur
-    if _sticker_set_exists(pack_name):
+    if pack_name:
+        # Pack varsa -> sticker ekle
         res = _add_sticker_to_set(OWNER_ID, pack_name, png_path, emoji="😄")
         if not res.get("ok"):
             err = res.get("description", "Bilinmeyen hata")
             return await status.edit(f"❌ Pack'e eklenemedi: {err}")
 
-        return await status.edit(f"✅ Sticker pack'e eklendi! ({arg})\n🔗 {pack_link}")
+        pack_link = f"https://t.me/addstickers/{pack_name}"
+        return await status.edit(f"✅ Sticker eklendi! ({arg})\n🔗 {pack_link}")
 
-    else:
-        res = _create_sticker_set(OWNER_ID, pack_name, pack_title, png_path, emoji="😄")
-        if not res.get("ok"):
-            err = res.get("description", "Bilinmeyen hata")
-            return await status.edit(f"❌ Paket oluşturulamadı: {err}")
+    # ✅ Pack yoksa -> oluştur, Redis'e kaydet
+    suffix = _rand_pack_suffix(10)
+    pack_name = f"dizla_{arg}_{suffix}_by_{bot_username}".lower()
+    pack_title = f"Abdullah Dizla - {arg.upper()} 😄"
 
-        # ✅ İlk oluşturduğunda ENV’ye kaydetmesi için pack name’i kullanıcıya söyle
-        return await status.edit(
-            f"✅ Paket oluşturuldu! ({arg})\n🔗 {pack_link}\n\n"
-            f"📌 Sabitlemek için Railway Variables'a şunu ekle:\n"
-            f"{env_key}={pack_name}"
-        )
+    res = _create_sticker_set(OWNER_ID, pack_name, pack_title, png_path, emoji="😄")
+    if not res.get("ok"):
+        err = res.get("description", "Bilinmeyen hata")
+        return await status.edit(f"❌ Paket oluşturulamadı: {err}")
+
+    # ✅ Redis'e kaydet
+    redis_set_pack(arg, pack_name)
+
+    pack_link = f"https://t.me/addstickers/{pack_name}"
+    return await status.edit(f"✅ Paket oluşturuldu ve kaydedildi! ({arg})\n🔗 {pack_link}")
 
 # ---------------- Start ----------------
 client.start()
