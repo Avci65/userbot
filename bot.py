@@ -187,18 +187,13 @@ async def cmd_q(event):
                 break
         return sticker_msg
 
-    async def send_reply_chain_to_quotly(quoted, replied_msg):
-        """
-        QuotLy'ye gerçek reply ilişkisiyle mesaj gönder.
-        Böylece Quoty bot sticker'ı reply quote gibi üretir.
-        """
-        q_text = (quoted.raw_text or "").strip() or " "
-        sent_q = await client.send_message(bot_entity, q_text)
-
-        r_text = (replied_msg.raw_text or "").strip() or " "
-        sent_r = await client.send_message(bot_entity, r_text, reply_to=sent_q.id)
-
-        return sent_r.id
+    def quote_block(text: str) -> str:
+        """Her satırı > ile quote yap"""
+        text = (text or "").strip()
+        if not text:
+            return "> ..."
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        return "\n".join([f"> {ln}" for ln in lines])
 
     # ✅ 1) Çoklu mesaj modu (n>1)
     if n > 1:
@@ -218,6 +213,7 @@ async def cmd_q(event):
             msgs = msgs[:n]
 
         # reply chain isteniyorsa: replied'in reply aldığı mesajı başa ekle
+        # (çoklu modda bu şekilde güzel oluyor)
         if use_reply_chain and replied.is_reply:
             quoted = await replied.get_reply_message()
             if quoted:
@@ -231,12 +227,24 @@ async def cmd_q(event):
         await status.delete()
         return
 
-    # ✅ 2) Tek mesaj + gerçek reply quote ( .q r )
+    # ✅ 2) Tek mesaj + .q r → TEK sticker içinde alıntı formatı
     if use_reply_chain and replied.is_reply:
         quoted = await replied.get_reply_message()
         if quoted:
-            last_id = await send_reply_chain_to_quotly(quoted, replied)
-            sticker_msg = await wait_for_sticker(last_id)
+            # quoted yazar adı
+            try:
+                sender = await quoted.get_sender()
+                q_author = (getattr(sender, "first_name", None) or getattr(sender, "username", None) or "Alıntı")
+            except:
+                q_author = "Alıntı"
+
+            q_text = (quoted.raw_text or "").strip()
+            r_text = (replied.raw_text or "").strip() or "..."
+
+            merged = f"{q_author}:\n{quote_block(q_text)}\n\n{r_text}"
+
+            sent = await client.send_message(bot_entity, merged)
+            sticker_msg = await wait_for_sticker(sent.id)
 
             if not sticker_msg:
                 return await status.edit("❌ QuotLy sticker göndermedi. (40sn)")
