@@ -124,141 +124,54 @@ async def cmd_q(event):
         return
 
     if not event.is_reply:
-        return await event.reply(
-            "Bir mesaja yanıt verip `.q` yaz ✅\n"
-            "Örn: `.q` / `.q r` / `.q 3` / `.q 3 r` / `.q 5 me`"
-        )
+        return await event.reply("Bir mesaja yanıt verip `.q` yaz ✅\nÖrn: `.q` / `.q r`")
 
     replied = await event.get_reply_message()
-    args_raw = (event.pattern_match.group(2) or "").strip().lower()
-    parts = [p for p in args_raw.split() if p]
-
-    # Flags
-    use_reply_chain = "r" in parts
-    only_me = "me" in parts
-
-    # Number (default 1)
-    n = 1
-    for p in parts:
-        if p.isdigit():
-            n = int(p)
-            break
-    if n < 1:
-        n = 1
-    if n > 10:
-        n = 10  # güvenli limit
+    arg = (event.pattern_match.group(2) or "").strip().lower()
 
     status = await event.reply("✅ QuotLy sticker hazırlanıyor...")
     bot_entity = await client.get_entity(QUOTLY_BOT)
 
-    async def forward_and_wait(messages_to_forward):
-        """QuotLy'ye forwardla ve stickerı bekle"""
-        fwd = await client.forward_messages(bot_entity, messages_to_forward)
-
-        # fwd_id belirle
-        if isinstance(fwd, list) and len(fwd) > 0:
-            fwd_id = fwd[-1].id
-        else:
-            fwd_id = fwd.id if hasattr(fwd, "id") else 0
-
+    async def wait_for_sticker(min_id: int, timeout=40):
         sticker_msg = None
-        for _ in range(80):  # 40sn
-            await asyncio.sleep(0.5)
-            msgs = await client.get_messages(bot_entity, min_id=fwd_id, limit=30)
-            for m in msgs:
-                if m.sticker or (m.file and m.file.mime_type == "image/webp"):
-                    sticker_msg = m
-                    break
-            if sticker_msg:
-                break
-        return sticker_msg
-
-    async def wait_for_sticker(min_id: int):
-        """QuotLy sohbetinden sticker bekle (min_id sonrası)"""
-        sticker_msg = None
-        for _ in range(80):  # 40sn
+        for _ in range(int(timeout / 0.5)):
             await asyncio.sleep(0.5)
             msgs = await client.get_messages(bot_entity, min_id=min_id, limit=30)
             for m in msgs:
                 if m.sticker or (m.file and m.file.mime_type == "image/webp"):
-                    sticker_msg = m
-                    break
-            if sticker_msg:
-                break
-        return sticker_msg
+                    return m
+        return None
 
-    def quote_block(text: str) -> str:
-        """Her satırı > ile quote yap"""
-        text = (text or "").strip()
-        if not text:
-            return "> ..."
-        lines = [ln for ln in text.splitlines() if ln.strip()]
-        return "\n".join([f"> {ln}" for ln in lines])
-
-    # ✅ 1) Çoklu mesaj modu (n>1)
-    if n > 1:
-        start_id = replied.id
-
-        # Daha fazla çekiyoruz ki filter sonrası yeter kalsın
-        msgs = await client.get_messages(event.chat_id, min_id=start_id - 1, limit=n + 15)
-        msgs = sorted(msgs, key=lambda m: m.id)
-
-        # replied dahil başlayarak n mesaj al
-        msgs = [m for m in msgs if m.id >= start_id][:n]
-
-        # only_me filtresi
-        if only_me:
-            me = await client.get_me()
-            msgs = [m for m in msgs if m.sender_id == me.id]
-            msgs = msgs[:n]
-
-        # reply chain isteniyorsa: replied'in reply aldığı mesajı başa ekle
-        # (çoklu modda bu şekilde güzel oluyor)
-        if use_reply_chain and replied.is_reply:
-            quoted = await replied.get_reply_message()
-            if quoted:
-                msgs = [quoted] + msgs
-
-        sticker_msg = await forward_and_wait(msgs)
-        if not sticker_msg:
-            return await status.edit("❌ QuotLy sticker göndermedi. (40sn)")
-
-        await client.send_file(event.chat_id, sticker_msg, force_document=False)
-        await status.delete()
-        return
-
-    # ✅ 2) Tek mesaj + .q r → TEK sticker içinde alıntı formatı
-    if use_reply_chain and replied.is_reply:
+    # ✅ .q r  → gerçek reply UI
+    if arg == "r" and replied.is_reply:
         quoted = await replied.get_reply_message()
         if quoted:
-            # quoted yazar adı
-            try:
-                sender = await quoted.get_sender()
-                q_author = (getattr(sender, "first_name", None) or getattr(sender, "username", None) or "Alıntı")
-            except:
-                q_author = "Alıntı"
+            # 1) quoted mesajı bot'a gönder
+            q_text = (quoted.raw_text or "").strip() or " "
+            m1 = await client.send_message(bot_entity, q_text)
 
-            q_text = (quoted.raw_text or "").strip()
-            r_text = (replied.raw_text or "").strip() or "..."
+            # 2) replied mesajı reply_to ile gönder
+            r_text = (replied.raw_text or "").strip() or " "
+            m2 = await client.send_message(bot_entity, r_text, reply_to=m1.id)
 
-            merged = f"{q_author}:\n{quote_block(q_text)}\n\n{r_text}"
-
-            sent = await client.send_message(bot_entity, merged)
-            sticker_msg = await wait_for_sticker(sent.id)
-
-            if not sticker_msg:
+            # 3) sticker bekle
+            sticker = await wait_for_sticker(m2.id)
+            if not sticker:
                 return await status.edit("❌ QuotLy sticker göndermedi. (40sn)")
 
-            await client.send_file(event.chat_id, sticker_msg, force_document=False)
+            await client.send_file(event.chat_id, sticker, force_document=False)
             await status.delete()
             return
 
-    # ✅ 3) Normal tek mesaj ( .q )
-    sticker_msg = await forward_and_wait(replied)
-    if not sticker_msg:
+    # ✅ normal .q
+    fwd = await client.forward_messages(bot_entity, replied)
+    fwd_id = fwd.id if hasattr(fwd, "id") else fwd[0].id
+
+    sticker = await wait_for_sticker(fwd_id)
+    if not sticker:
         return await status.edit("❌ QuotLy sticker göndermedi. (40sn)")
 
-    await client.send_file(event.chat_id, sticker_msg, force_document=False)
+    await client.send_file(event.chat_id, sticker, force_document=False)
     await status.delete()
 
 
