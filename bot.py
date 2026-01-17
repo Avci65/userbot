@@ -272,6 +272,8 @@ async def cmd_sil(event):
 # ---------------- Plugin: SA ----------------
 from plugins.sa import setup as sa_setup
 sa_setup(client)
+from plugins.ig import setup as ig_setup
+ig_setup(client)
 
 # ---------------- Start ----------------
 client.start()
