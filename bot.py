@@ -1,7 +1,13 @@
 import os
 import asyncio
+import random
+import string
+from io import BytesIO
+
+import requests
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
+from PIL import Image
 
 # ---------------- ENV ----------------
 API_ID = int(os.getenv("API_ID", "0"))
@@ -10,8 +16,9 @@ API_HASH = os.getenv("API_HASH", "").strip()
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 SESSION_STRING = SESSION_STRING.replace("\n", "").replace("\r", "").strip()
 
-OWNER_ID = int(os.getenv("OWNER_ID", "0"))  # Telegram ID'n (Railway Variables'a ekle)
+OWNER_ID = int(os.getenv("OWNER_ID", "0"))  # Telegram user ID
 QUOTLY_BOT = os.getenv("QUOTLY_BOT", "QuotLyBot").strip().lstrip("@")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 
 def is_owner(event) -> bool:
     return OWNER_ID == 0 or event.sender_id == OWNER_ID
@@ -21,7 +28,26 @@ if API_ID == 0 or not API_HASH or not SESSION_STRING:
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
+# ---------------- Helpers ----------------
+def _rand_pack_suffix(n=10):
+    return "".join(random.choice(string.ascii_lowercase + string.digits) for _ in range(n))
+
+def _get_bot_username():
+    r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=30).json()
+    if not r.get("ok"):
+        raise RuntimeError("BOT_TOKEN hatalı olabilir (getMe başarısız).")
+    return r["result"]["username"]  # örn MyStickerBot
+
+def _create_sticker_set(user_id: int, name: str, title: str, png_sticker_path: str, emoji="😄"):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/createNewStickerSet"
+    with open(png_sticker_path, "rb") as f:
+        files = {"png_sticker": f}
+        data = {"user_id": user_id, "name": name, "title": title, "emojis": emoji}
+        return requests.post(url, data=data, files=files, timeout=60).json()
+
 # ---------------- Commands ----------------
+
+# ✅ QuotLy Sticker
 @client.on(events.NewMessage(pattern=r"(?i)^\.(q)\s*$"))
 async def cmd_q(event):
     if not is_owner(event):
@@ -39,18 +65,16 @@ async def cmd_q(event):
 
     bot_entity = await client.get_entity(QUOTLY_BOT)
 
-    # ✅ Mesajı forward et ve forward ID'sini al
+    # Mesajı forward et ve forward id al
     fwd = await client.forward_messages(bot_entity, replied)
     fwd_id = fwd.id if hasattr(fwd, "id") else fwd[0].id
 
-    # ✅ sadece bu forward'dan SONRA gelen stickerı yakala
     sticker_msg = None
-    for _ in range(40):  # 20sn
+    for _ in range(40):  # 20 saniye
         await asyncio.sleep(0.5)
 
-        # forward edilen mesajdan daha yeni mesajları al
+        # sadece forward sonrası gelenleri ara
         msgs = await client.get_messages(bot_entity, min_id=fwd_id, limit=10)
-
         for m in msgs:
             if m.sticker or (m.file and m.file.mime_type == "image/webp"):
                 sticker_msg = m
@@ -65,90 +89,51 @@ async def cmd_q(event):
     await client.send_file(event.chat_id, sticker_msg, force_document=False)
     await status.delete()
 
-import time
-import random
-import string
-import requests
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-
-def _rand_pack_suffix(n=8):
-    return ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(n))
-
-def _create_sticker_set(user_id: int, name: str, title: str, png_sticker_path: str, emoji="🔥"):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/createNewStickerSet"
-    with open(png_sticker_path, "rb") as f:
-        files = {"png_sticker": f}
-        data = {
-            "user_id": user_id,
-            "name": name,
-            "title": title,
-            "emojis": emoji
-        }
-        r = requests.post(url, data=data, files=files, timeout=60)
-    return r.json()
-
-def _add_sticker_to_set(user_id: int, name: str, png_sticker_path: str, emoji="🔥"):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/addStickerToSet"
-    with open(png_sticker_path, "rb") as f:
-        files = {"png_sticker": f}
-        data = {
-            "user_id": user_id,
-            "name": name,
-            "emojis": emoji
-        }
-        r = requests.post(url, data=data, files=files, timeout=60)
-    return r.json()
-
+# ✅ Dizla: Sticker pack oluştur
 @client.on(events.NewMessage(pattern=r"(?i)^\.(dızla|dizla)\s*$"))
 async def cmd_dizla(event):
     if not is_owner(event):
         return
 
     if not BOT_TOKEN:
-        return await event.reply("❌ BOT_TOKEN yok! BotFather'dan token alıp Railway Variables'a ekle.")
+        return await event.reply("❌ BOT_TOKEN yok! BotFather tokenini Railway Variables'a ekle.")
 
     if not event.is_reply:
-        return await event.reply("Bir **sticker'a** yanıt verip `.dızla` yaz 😄")
+        return await event.reply("Bir **sticker'a** yanıt verip `.dizla` yaz 😄")
 
     replied = await event.get_reply_message()
     if not replied.sticker:
-        return await event.reply("❌ Bu bir sticker değil. Sticker'a reply yapmalısın.")
+        return await event.reply("❌ Sticker'a reply yapmalısın.")
 
     status = await event.reply("🛠️ Stickerini çalışıyorum...")
 
-    # 1) Stickerı indir
+    # Sticker indir (webp)
     webp_path = await client.download_media(replied, file="in.webp")
 
-    # 2) Bot API png istiyor → webp'yi pngye çevirelim (Pillow ile)
-    from PIL import Image
+    # Webp -> PNG
     im = Image.open(webp_path).convert("RGBA")
     png_path = "sticker.png"
     im.save(png_path, "PNG")
 
-    # 3) Paket adı ve başlık
-    suffix = _rand_pack_suffix()
-    pack_name = f"dizla_{suffix}_by_{(await client.get_me()).username or 'myuserbot'}"
+    # ✅ pack name mutlaka _by_<BOT_USERNAME> ile bitmeli
+    try:
+        bot_username = _get_bot_username()
+    except Exception as e:
+        return await status.edit(f"❌ BOT_USERNAME alınamadı: {e}")
+
+    suffix = _rand_pack_suffix(10)
+    pack_name = f"dizla_{suffix}_by_{bot_username}".lower()  # ✅ doğru format
     pack_title = f"Abdullah Dizla Pack {suffix} 😄"
 
-    # 4) Sticker set oluştur
     res = _create_sticker_set(OWNER_ID, pack_name, pack_title, png_path, emoji="😄")
 
-
     if not res.get("ok"):
-        # Eğer set var vs ise hata verir
         err = res.get("description", "Bilinmeyen hata")
         return await status.edit(f"❌ Paket oluşturulamadı: {err}")
 
-    await status.edit("✅ Paket oluşturuldu! Sticker ekleniyor...")
-
-    # 5) İlk sticker zaten eklenmiş olur (createNewStickerSet ekler)
-    # Link gönder
     pack_link = f"https://t.me/addstickers/{pack_name}"
-    await event.reply(f"🎉 Sticker paketin hazır!\n🔗 {pack_link}")
-
-    await status.delete()
-
+    await status.edit(f"✅ Paket oluşturuldu!\n🔗 {pack_link}")
 
 
 # ---------------- Start ----------------
