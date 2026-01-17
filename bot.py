@@ -8,7 +8,7 @@ print("SESSION ENV RAW:", repr(os.getenv("SESSION_STRING"))[:60])
 
 API_ID = int(os.getenv("1838931", "0"))
 API_HASH = os.getenv("d8ed731e06dff557170f3b6a85640522", "").strip()
-SESSION_STRING = os.getenv("1BJWap1wBu0Irb95XzQhfEyoQhIGT6PSRLwBF0jGK-DxG-RLKQVxh4juUSWv_n6_GdUycUB9fpN6iOXYl9G8xeoPGr5uS3BRQxEaZh4NknIS-aW3jw0I3JkC3lDb-ReFdr3uzvKpOAJsYLPaVNB866AwgB9TGyyif3KXjDlqNk20b6VsIOhDCs6PXsJudS8qoUXl11Xzv0NkdSKBble9oIVF5a-DM0OftlNIOG-YvM_lxiLh98-PAnj6Ie56EhrmZ4Kgor_B0oZ85Y3aH2axW_32pXbyTTZ0b5hwPnPpYE8c7GBRynMpqPeNBcRRofBqBp-NhualEr3STVDbO8vu0FWy_Su9OUms=", "").strip()
+SESSION_STRING = os.getenv("1BJWap1wBu5_arM-Cj2Ok8C8ltxa9E-RMa4pHeCej9ZX6XtSp33pNeTNmWt7_Qz0mX53a9xm7-JOFyCwZNsEmglEXfa7c2I-xe0Aw0JVnEpazKEIHchHSZ2pdUtbPhoZfW4v_xjPNh9O-6soLVKNXlQ8EPnx--mCCE8i8Dcr2KAvorBZep238lZIAkkWgsc18LjoE4JNAZgyaj-9Mo47wc-kRv4LJ8Y8gyDYarnG0UJ4oualI9eInU4xqUykO3vjnJDtu5eQWMeO-ePGBuULl32N6zBFkl_0qcXqx-4tL2izX1--v_qSlEBuV-YUNRTS4j9PfmzILCvG31LSa2gPMFhpfwn68V48=", "").strip()
 
 
 if API_ID == 0 or not API_HASH or not SESSION_STRING:
