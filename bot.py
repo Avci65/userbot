@@ -58,18 +58,22 @@ async def make_quatly_sticker(replied_msg, out_path="quote.webp"):
     base = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(base)
 
-    # Kart
-    card = _gradient_bg(430, 260)
-    card_x, card_y = 60, 150
+    # ---- Kart ölçüsü (daha iyi oran) ----
+    card_w, card_h = 460, 300
+    card_x = (W - card_w) // 2
+    card_y = (H - card_h) // 2
 
-    # Rounded card mask
-    mask = Image.new("L", card.size, 0)
+    card = _gradient_bg(card_w, card_h)
+
+    # Rounded mask
+    mask = Image.new("L", (card_w, card_h), 0)
     md = ImageDraw.Draw(mask)
-    md.rounded_rectangle((0, 0, card.size[0], card.size[1]), radius=48, fill=255)
+    md.rounded_rectangle((0, 0, card_w, card_h), radius=55, fill=255)
+
     base.paste(card, (card_x, card_y), mask)
 
-    # Avatar (replied message sender)
-    avatar_size = 110
+    # ---- Avatar ----
+    avatar_size = 96
     sender = await replied_msg.get_sender()
 
     pfp_io = BytesIO()
@@ -79,36 +83,63 @@ async def make_quatly_sticker(replied_msg, out_path="quote.webp"):
         pfp_io.seek(0)
         avatar_img = Image.open(pfp_io)
     else:
-        avatar_img = Image.new("RGB", (avatar_size, avatar_size), (90, 90, 90))
+        avatar_img = Image.new("RGB", (avatar_size, avatar_size), (120, 120, 120))
 
     avatar_img = _circle_crop(avatar_img, avatar_size)
-    base.paste(avatar_img, (65, 70), avatar_img)
 
-    # Text
+    # Avatar kartın içine
+    avatar_x = card_x + 30
+    avatar_y = card_y + 26
+    base.paste(avatar_img, (avatar_x, avatar_y), avatar_img)
+
+    # ---- İsim ----
     name = getattr(sender, "first_name", None) or "User"
-    name_font = _load_font(56, bold=True)
+    name_font = _load_font(46, bold=True)
 
-    msg = (replied_msg.raw_text or "").strip()
-    if len(msg) > 140:
-        msg = msg[:140] + "…"
-
-    msg_font = _load_font(44, bold=False)
-    wrapped = "\n".join(textwrap.wrap(msg, width=14))
-
-    # Draw name + message
-    name_x = card_x + 30
-    name_y = card_y + 35
+    name_x = avatar_x + avatar_size + 22
+    name_y = avatar_y + 18
     draw.text((name_x, name_y), name, font=name_font, fill=(255, 170, 60, 255))
 
+    # ---- Mesaj ----
+    msg = (replied_msg.raw_text or "").strip()
+    if len(msg) > 300:
+        msg = msg[:300] + "…"
+
+    # ✅ mesaj için otomatik font
+    # kısa mesaj => büyük font, uzun mesaj => küçült
+    font_size = 64
+    msg_font = _load_font(font_size, bold=False)
+
+    max_w = card_w - 60
+    max_h = card_h - 140
+
+    while font_size > 26:
+        msg_font = _load_font(font_size, bold=False)
+        wrapped = "\n".join(textwrap.wrap(msg, width=18))
+        bbox = draw.multiline_textbbox((0, 0), wrapped, font=msg_font, spacing=10)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+
+        if tw <= max_w and th <= max_h:
+            break
+
+        font_size -= 4
+
+    # mesajı kartın ortasına yakın yerleştir
+    msg_x = card_x + 30
+    msg_y = card_y + 130
+
     draw.multiline_text(
-        (name_x, name_y + 85),
+        (msg_x, msg_y),
         wrapped,
         font=msg_font,
         fill=(255, 255, 255, 255),
-        spacing=10
+        spacing=10,
+        align="left"
     )
 
     base.save(out_path, "WEBP", quality=95, method=6)
+
 
 # ---------------- Commands ----------------
 @client.on(events.NewMessage(pattern=r"(?i)^\.(ping)\s*$"))
