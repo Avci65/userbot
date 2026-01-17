@@ -103,44 +103,109 @@ botapi_delete_webhook()
 # ---------------- Commands ----------------
 
 # ✅ .q (ilk çalışan mantık birebir)
-@client.on(events.NewMessage(pattern=r"(?i)^\.(q)\s*$"))
+@client.on(events.NewMessage(pattern=r"(?i)^\.(q)(?:\s+(.+))?\s*$"))
 async def cmd_q(event):
     if not is_owner(event):
         return
 
     if not event.is_reply:
-        return await event.reply("Bir mesaja yanıt verip `.q` yaz ✅")
+        return await event.reply(
+            "Bir mesaja yanıt verip `.q` yaz ✅\n"
+            "Örn: `.q` / `.q r` / `.q 3` / `.q 3 r` / `.q 5 me`"
+        )
 
     replied = await event.get_reply_message()
-    text = (replied.raw_text or "").strip()
-    if not text:
-        return await event.reply("Bu mesajda metin yok 😅")
+    args_raw = (event.pattern_match.group(2) or "").strip().lower()
+    parts = [p for p in args_raw.split() if p]
+
+    # Flags
+    use_reply_chain = "r" in parts
+    only_me = "me" in parts
+
+    # Number (default 1)
+    n = 1
+    for p in parts:
+        if p.isdigit():
+            n = int(p)
+            break
+    if n < 1:
+        n = 1
+    if n > 10:
+        n = 10  # güvenli limit
 
     status = await event.reply("✅ QuotLy sticker hazırlanıyor...")
-
     bot_entity = await client.get_entity(QUOTLY_BOT)
 
-    # ✅ Mesajı forward et ve forward ID'sini al
-    fwd = await client.forward_messages(bot_entity, replied)
-    fwd_id = fwd.id if hasattr(fwd, "id") else fwd[0].id
+    async def forward_and_wait(messages_to_forward):
+        """QuotLy'ye forwardla ve stickerı bekle"""
+        fwd = await client.forward_messages(bot_entity, messages_to_forward)
 
-    # ✅ sadece bu forward'dan SONRA gelen stickerı yakala
-    sticker_msg = None
-    for _ in range(40):  # 20sn
-        await asyncio.sleep(0.5)
-        msgs = await client.get_messages(bot_entity, min_id=fwd_id, limit=20)
-        for m in msgs:
-            if m.sticker or (m.file and m.file.mime_type == "image/webp"):
-                sticker_msg = m
+        # fwd_id belirle
+        if isinstance(fwd, list) and len(fwd) > 0:
+            fwd_id = fwd[-1].id
+        else:
+            fwd_id = fwd.id if hasattr(fwd, "id") else 0
+
+        sticker_msg = None
+        for _ in range(80):  # 40sn
+            await asyncio.sleep(0.5)
+            msgs = await client.get_messages(bot_entity, min_id=fwd_id, limit=30)
+            for m in msgs:
+                if m.sticker or (m.file and m.file.mime_type == "image/webp"):
+                    sticker_msg = m
+                    break
+            if sticker_msg:
                 break
-        if sticker_msg:
-            break
+        return sticker_msg
+
+    # ✅ 1) çoklu mesaj modu (n>1)
+    if n > 1:
+        start_id = replied.id
+        msgs = await client.get_messages(event.chat_id, min_id=start_id - 1, limit=n + 6)
+
+        # sırala
+        msgs = sorted(msgs, key=lambda m: m.id)
+
+        # replied dahil başlayarak n mesaj al
+        msgs = [m for m in msgs if m.id >= start_id][:n]
+
+        # only_me filtresi
+        if only_me:
+            me = await client.get_me()
+            msgs = [m for m in msgs if m.sender_id == me.id]
+            msgs = msgs[:n]
+
+        # reply chain isteniyorsa ve ilk mesaj reply içeriyorsa quoted ekle
+        if use_reply_chain and replied.is_reply:
+            quoted = await replied.get_reply_message()
+            if quoted:
+                msgs = [quoted] + msgs
+
+        sticker_msg = await forward_and_wait(msgs)
+        if not sticker_msg:
+            return await status.edit("❌ QuotLy sticker göndermedi. (40sn)")
+
+        await client.send_file(event.chat_id, sticker_msg, force_document=False)
+        await status.delete()
+        return
+
+    # ✅ 2) tek mesaj ama reply chain ( .q r )
+    if use_reply_chain and replied.is_reply:
+        quoted = await replied.get_reply_message()
+        if quoted:
+            sticker_msg = await forward_and_wait([quoted, replied])
+        else:
+            sticker_msg = await forward_and_wait(replied)
+    else:
+        # ✅ 3) normal tek mesaj
+        sticker_msg = await forward_and_wait(replied)
 
     if not sticker_msg:
-        return await status.edit("❌ QuotLy sticker göndermedi. (20sn)")
+        return await status.edit("❌ QuotLy sticker göndermedi. (40sn)")
 
     await client.send_file(event.chat_id, sticker_msg, force_document=False)
     await status.delete()
+
 
 
 # ✅ .dizla / .dızla (Redis ile sabit pack)
@@ -163,7 +228,7 @@ async def cmd_dizla(event):
         return await event.reply("❌ Sticker'a reply yapmalısın.")
 
     arg = (event.pattern_match.group(2) or "").strip().lower() or "1"
-    status = await event.reply(f"🛠️ Stickerini çalışıyorum... (pack: {arg})")
+    status = await event.reply(f"🛠️ Stickerini çalıyorum...:DD (pack: {arg})")
 
     webp_path = await client.download_media(replied, file="in.webp")
     im = Image.open(webp_path).convert("RGBA")
