@@ -8,8 +8,6 @@ import redis
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from PIL import Image
-from userbot.loader import load_plugins
-load_plugins(client)
 
 # ---------------- ENV ----------------
 API_ID = int(os.getenv("API_ID", "0"))
@@ -24,6 +22,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 REDIS_URL = os.getenv("REDIS_URL", "").strip()
 
 # ---------------- Redis ----------------
+client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+from plugins.sa import setup as sa_setup
+sa_setup(client)
+
 rdb = redis.from_url(REDIS_URL, decode_responses=True) if REDIS_URL else None
 
 def redis_get_pack(pack_key: str):
