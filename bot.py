@@ -22,16 +22,6 @@ if API_ID == 0 or not API_HASH or not SESSION_STRING:
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 # ---------------- Commands ----------------
-@client.on(events.NewMessage(pattern=r"(?i)^\.(id)\s*$"))
-async def cmd_id(event):
-    await event.reply(f"🆔 ID: `{event.sender_id}`")
-
-@client.on(events.NewMessage(pattern=r"(?i)^\.(ping)\s*$"))
-async def cmd_ping(event):
-    if not is_owner(event):
-        return
-    await event.reply("pong ✅")
-
 @client.on(events.NewMessage(pattern=r"(?i)^\.(q)\s*$"))
 async def cmd_q(event):
     if not is_owner(event):
@@ -45,28 +35,21 @@ async def cmd_q(event):
     if not text:
         return await event.reply("Bu mesajda metin yok 😅")
 
-    status = await event.reply("✅ QuotLy'ye gönderiyorum...")
+    status = await event.reply("✅ QuotLy sticker hazırlanıyor...")
 
-    # Bot entity al
-    try:
-        bot_entity = await client.get_entity(QUOTLY_BOT)
-    except Exception as e:
-        return await status.edit(f"❌ QuotLy bulunamadı: {e}")
+    bot_entity = await client.get_entity(QUOTLY_BOT)
 
-    # Bot'u uyandır
-    try:
-        await client.send_message(bot_entity, "/start")
-    except:
-        pass
+    # ✅ Mesajı forward et ve forward ID'sini al
+    fwd = await client.forward_messages(bot_entity, replied)
+    fwd_id = fwd.id if hasattr(fwd, "id") else fwd[0].id
 
-    # Reply mesajını QuotLy'ye forward et
-    await client.forward_messages(bot_entity, replied)
-
-    # QuotLy'den sticker bekle
+    # ✅ sadece bu forward'dan SONRA gelen stickerı yakala
     sticker_msg = None
-    for _ in range(40):  # 40 * 0.5 = 20 saniye
+    for _ in range(40):  # 20sn
         await asyncio.sleep(0.5)
-        msgs = await client.get_messages(bot_entity, limit=10)
+
+        # forward edilen mesajdan daha yeni mesajları al
+        msgs = await client.get_messages(bot_entity, min_id=fwd_id, limit=10)
 
         for m in msgs:
             if m.sticker or (m.file and m.file.mime_type == "image/webp"):
@@ -79,10 +62,9 @@ async def cmd_q(event):
     if not sticker_msg:
         return await status.edit("❌ QuotLy sticker göndermedi. (20sn)")
 
-    await status.edit("✅ Sticker alındı, gönderiyorum...")
-
     await client.send_file(event.chat_id, sticker_msg, force_document=False)
     await status.delete()
+
 
 # ---------------- Start ----------------
 client.start()
