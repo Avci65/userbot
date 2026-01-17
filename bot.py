@@ -23,8 +23,13 @@ REDIS_URL = os.getenv("REDIS_URL", "").strip()
 
 # ---------------- Redis ----------------
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+
 from plugins.sa import setup as sa_setup
 sa_setup(client)
+
+client.start()
+client.run_until_disconnected()
+
 
 rdb = redis.from_url(REDIS_URL, decode_responses=True) if REDIS_URL else None
 
