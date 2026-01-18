@@ -380,61 +380,36 @@ async def cmd_sil(event):
     await status.edit("✅ Sticker silindi!")
 
 @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.özel\s+(.+)\s+(\S+)$"))
-async def cmd_auto_whisper(event):
+async def cmd_auto_whisper_inline(event):
     if not is_owner(event):
         return
 
-    # Komut: .özel mesaj içeriği @username_veya_id
     msg_content = event.pattern_match.group(1).strip()
     target = event.pattern_match.group(2).strip()
-
-    # Kullanıcı adından @ işaretini temizle (karşılaştırma için)
     clean_target = target.lstrip("@")
 
-    # Benzersiz bir ID oluştur (Redis için)
+    # 1) Önce mesajı Redis'e kaydet (Mevcut mantık)
     wid = str(int(time.time() * 1000))
-
-    # 1) Redis Kaydı
     if rdb:
         rdb.setex(f"whisper:{wid}", 3600, json.dumps({
             "target": clean_target,
             "msg": msg_content
         }))
     else:
-        await event.edit("❌ Redis bağlantısı yok!")
-        return
+        return await event.edit("❌ Redis yok!")
 
-    # 2) Bot API ile Buton Gönderme
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    # 2) Kendi hesabın üzerinden "inline query" sonucunu grupta paylaş
+    bot_username = _get_bot_username_cached()
     
-    # Buton yapısını hazırla
-    reply_markup = {
-        "inline_keyboard": [[
-            {"text": "👀 Mesajı Gör", "callback_data": f"whisper:{wid}"}
-        ]]
-    }
-
-    payload = {
-        "chat_id": event.chat_id,
-        "text": f"🤫 <b>{target}</b> için gizli bir mesaj var!",
-        "parse_mode": "HTML",
-        "reply_markup": json.dumps(reply_markup)
-    }
-
     try:
-        # İstek gönder
-        response = requests.post(url, json=payload, timeout=20).json()
+        # Userbot senin adına botu çağırır ve sonucu gruba atar
+        results = await client.inline_query(bot_username, f"{msg_content} {target}")
+        await results[0].click(event.chat_id)
         
-        if response.get("ok"):
-            # Eğer buton başarıyla gittiyse kendi yazdığın komutu sil
-            await event.delete()
-        else:
-            # Hata varsa mesajı silme, hatayı yaz ki görelim
-            error_msg = response.get("description", "Bilinmeyen hata")
-            await event.edit(f"❌ Bot mesajı gönderemedi: {error_msg}")
-            
+        # Orijinal ".özel" komutunu sil
+        await event.delete()
     except Exception as e:
-        await event.edit(f"⚠️ Sistem hatası: {str(e)}")
+        await event.edit(f"❌ Hata: {str(e)}\nNot: Botun 'Inline Mode' özelliği kapalı olabilir.")
 
 # ---------------- Plugins ----------------
 try:
