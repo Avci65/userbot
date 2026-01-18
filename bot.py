@@ -379,37 +379,52 @@ async def cmd_sil(event):
 
     await status.edit("✅ Sticker silindi!")
 
-@client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.özel\s+(.+)\s+(\S+)$"))
-async def cmd_auto_whisper_inline(event):
+@client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.özel\s+(.+)$"))
+async def cmd_auto_whisper_flexible(event):
     if not is_owner(event):
         return
 
-    msg_content = event.pattern_match.group(1).strip()
-    target = event.pattern_match.group(2).strip()
-    clean_target = target.lstrip("@")
+    raw_text = event.pattern_match.group(1).strip()
+    replied = await event.get_reply_message()
+    
+    target = None
+    msg_content = None
 
-    # 1) Önce mesajı Redis'e kaydet (Mevcut mantık)
+    # 1. Senaryo: Yanıt vererek (Reply) kullanım -> .özel selam
+    if replied:
+        msg_content = raw_text
+        target = str(replied.sender_id) # Yanıt verilen kişinin ID'sini al
+    
+    # 2. Senaryo: Manuel kullanıcı adı/ID ile kullanım -> .özel selam @kyura
+    else:
+        parts = raw_text.rsplit(maxsplit=1) # En sondaki kelimeyi hedef olarak ayır
+        if len(parts) < 2:
+            return await event.edit("❌ Yanıt vermiyorsan lütfen hedefi belirt: `.özel mesaj @kullanıcı`")
+        
+        msg_content = parts[0].strip()
+        target = parts[1].strip().lstrip("@")
+
+    # Benzersiz ID ve Redis kaydı (Mevcut mantığınla aynı)
     wid = str(int(time.time() * 1000))
     if rdb:
         rdb.setex(f"whisper:{wid}", 3600, json.dumps({
-            "target": clean_target,
+            "target": target,
             "msg": msg_content
         }))
     else:
         return await event.edit("❌ Redis yok!")
 
-    # 2) Kendi hesabın üzerinden "inline query" sonucunu grupta paylaş
+    # Inline Query tetikleme
     bot_username = _get_bot_username_cached()
-    
     try:
-        # Userbot senin adına botu çağırır ve sonucu gruba atar
+        # Botun inline query'sini manuel tetikliyoruz
+        # Not: Botun fısıltıyı tanıması için inline formatına uygun gönderiyoruz
         results = await client.inline_query(bot_username, f"{msg_content} {target}")
         await results[0].click(event.chat_id)
         
-        # Orijinal ".özel" komutunu sil
         await event.delete()
     except Exception as e:
-        await event.edit(f"❌ Hata: {str(e)}\nNot: Botun 'Inline Mode' özelliği kapalı olabilir.")
+        await event.edit(f"❌ Hata: {str(e)}")
 
 # ---------------- Plugins ----------------
 try:
