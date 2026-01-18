@@ -13,6 +13,9 @@ from flask import Flask, request
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from PIL import Image
+import sys, os
+sys.path.append(os.path.dirname(__file__))
+
 
 # ---------------- ENV ----------------
 API_ID = int(os.getenv("API_ID", "0"))
@@ -427,18 +430,14 @@ async def cmd_auto_whisper_flexible(event):
         await event.edit(f"❌ Hata: {str(e)}")
 
 # ---------------- Plugins ----------------
-try:
-    from plugins.sa import setup as sa_setup
-    sa_setup(client)
-except:
-    pass
+from plugins.sa import setup as sa_setup
+sa_setup(client)
 
-try:
-    from plugins.ig import setup as ig_setup
-    ig_setup(client)
-except:
-    pass
+from plugins.ig import setup as ig_setup
+ig_setup(client)
 
+from plugins.emojify import setup as emojify_setup
+emojify_setup(client)
 # ---------------- Start ----------------
 t = threading.Thread(target=run_flask, daemon=True)
 t.start()
