@@ -24,7 +24,9 @@ def setup(client):
             "🍃Naber",
             "🔅Ben Geldim",
             "**Hoşgeldim**",
-            "**❄️Sea**"
+            "Es-Selam-u-Aleykum ve-rahmetullahi ve-berakatüh", 
+            "**❄️Sea**",
+
         ]
 
         for ch in animation_chars:
