@@ -379,44 +379,52 @@ async def cmd_sil(event):
 
     await status.edit("✅ Sticker silindi!")
 
-@client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(özel|ozel)\s+(.+)$"))
-async def cmd_ozel_inline_helper(event):
+@client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.özel\s+(.+)\s+(\S+)$"))
+async def cmd_auto_whisper(event):
     if not is_owner(event):
         return
 
-    raw = (event.pattern_match.group(2) or "").strip()
-    parts = raw.split()
-    if len(parts) < 2:
-        return await event.reply(
-            "Kullanım: `.özel <mesaj> <@username veya id>`\n"
-            "Örn: `.özel selam @kyura`"
-        )
+    # Komut: .özel mesaj içeriği @username_veya_id
+    msg_content = event.pattern_match.group(1).strip()
+    target = event.pattern_match.group(2).strip()
 
-    target = parts[-1].strip()
-    msg = " ".join(parts[:-1]).strip()
+    if not msg_content or not target:
+        return await event.reply("Kullanım: `.özel mesaj @kullanıcı` veya `.özel mesaj 12345` ")
 
-    if not msg:
-        return await event.reply("❌ Mesaj boş olamaz.")
+    # Username'den @ işaretini kaldır (karşılaştırma için)
+    clean_target = target.lstrip("@")
 
-    # target normalize
-    if not target.startswith("@") and not target.isdigit():
-        target = "@" + target
+    # Benzersiz bir ID oluştur (Redis için)
+    wid = str(int(time.time() * 1000))
 
-    bot_username = _get_bot_username_cached()  # sticker65_bot
+    # Mesajı Redis'e kaydet (Mevcut mantığınla uyumlu)
+    if rdb:
+        rdb.setex(f"whisper:{wid}", 3600, json.dumps({
+            "target": clean_target,
+            "msg": msg_content
+        }))
+    else:
+        return await event.edit("❌ Redis bağlantısı yok, fısıltı oluşturulamadı.")
 
-    inline_text = f"@{bot_username} {msg} {target}"
+    # Bot üzerinden gruptaki butonu gönder
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": event.chat_id,
+        "text": f"🤫 <b>{target}</b> için gizli bir mesaj var!",
+        "parse_mode": "HTML",
+        "reply_markup": json.dumps({
+            "inline_keyboard": [[
+                {"text": "👀 Mesajı Gör", "callback_id": f"whisper:{wid}", "callback_data": f"whisper:{wid}"}
+            ]]
+        })
+    }
 
-    # kullanıcıya hazır komut ver
-    await event.respond(
-        "📌 <b>Fısıltı hazır</b> (kopyala-yapıştır):\n"
-        f"<code>{inline_text}</code>\n\n"
-        "➡️ Gönderince bot sonucu çıkacak, onu seç 👍",
-        parse_mode="HTML"
-    )
-
-    # kendi .özel mesajını sil
-    await event.delete()
-
+    try:
+        requests.post(url, data=payload, timeout=20)
+        # Kendi yazdığın komutu sil (temizlik için)
+        await event.delete()
+    except Exception as e:
+        await event.edit(f"Hata oluştu: {str(e)}")
 
 # ---------------- Plugins ----------------
 try:
