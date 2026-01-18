@@ -1,50 +1,42 @@
 # plugins/all.py
 import random
+import asyncio
 from telethon import events
+
+# aktif all işlemleri: chat_id -> True/False
+ALL_RUNNING = {}
 
 def setup(client):
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(all)(?:\s+(\d+))?(?:\s+(.+))?$"))
+    # .all 25 sebep
+    @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(all)(?:\s+(\d+))?(?:\s+([\s\S]+))?$"))
     async def cmd_all(event):
-        """
-        .all 25 sebep
-        .all 25
-        .all sebep (sayı yoksa default 25)
-        """
         if event.is_private:
             return
+
+        chat_id = event.chat_id
+
+        # zaten çalışıyorsa engelle
+        if ALL_RUNNING.get(chat_id):
+            return await event.edit("⚠️ Bu grupta zaten `.all` çalışıyor. Durdurmak için: `.stopall`")
 
         n_str = event.pattern_match.group(2)
         extra_text = (event.pattern_match.group(3) or "").strip()
 
-        # eğer kullanıcı ".all sebep" yazdıysa, 2. grup None olur ama 3. grup da None olur.
-        # bu yüzden ek kontrol:
-        raw = event.raw_text.strip()
-        parts = raw.split(maxsplit=1)
-
-        # varsayılan
         n = 25
-
-        # ".all 25 ..." formatı
         if n_str:
             try:
                 n = int(n_str)
             except:
                 n = 25
-        else:
-            # ".all sebep" yazıldıysa sayıyı default 25 yapıyoruz ve sebebi alıyoruz
-            if len(parts) == 2 and not parts[1].strip().isdigit():
-                extra_text = parts[1].strip()
 
-        # Limitler (spam yememek için güvenli)
         n = max(1, min(n, 50))
 
         await event.delete()
 
-        # gruptaki kişilerden çek
+        # gruptaki kullanıcıları çek
         users = []
-        async for u in client.iter_participants(event.chat_id):
-            # botları ve kendimizi geç
+        async for u in client.iter_participants(chat_id):
             if u.bot:
                 continue
             users.append(u)
@@ -55,14 +47,39 @@ def setup(client):
         # random seç
         chosen = random.sample(users, k=min(n, len(users)))
 
-        # tek mesajda etiketlemek daha iyi (ban yemeyi azaltır)
-        tags = []
-        for u in chosen:
-            name = (u.first_name or "User").replace("[", "").replace("]", "")
-            tags.append(f"[{name}](tg://user?id={u.id})")
+        # döngü başlat
+        ALL_RUNNING[chat_id] = True
 
-        text = " ".join(tags)
-        if extra_text:
-            text += f"\n\n{extra_text}"
+        try:
+            # İstersen tek mesaj yerine sırayla spam yapalım:
+            # Her user için 1 mesaj (durdurulabilir)
+            for u in chosen:
+                if not ALL_RUNNING.get(chat_id):
+                    break
 
-        await client.send_message(event.chat_id, text, link_preview=False)
+                name = (u.first_name or "User").replace("[", "").replace("]", "")
+                msg = f"[{name}](tg://user?id={u.id})"
+                if extra_text:
+                    msg += f" {extra_text}"
+
+                await client.send_message(chat_id, msg, link_preview=False)
+
+                # flood yememek için küçük bekleme
+                await asyncio.sleep(1.2)
+
+        finally:
+            ALL_RUNNING[chat_id] = False
+
+
+    # ✅ durdurma komutu
+    @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(stopall)\s*$"))
+    async def cmd_stopall(event):
+        if event.is_private:
+            return
+        chat_id = event.chat_id
+
+        if not ALL_RUNNING.get(chat_id):
+            return await event.edit("ℹ️ Bu grupta çalışan bir `.all` yok.")
+
+        ALL_RUNNING[chat_id] = False
+        await event.edit("✅ `.all` durduruldu.")
