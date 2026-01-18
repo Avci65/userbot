@@ -268,6 +268,66 @@ async def cmd_sil(event):
 
     await status.edit("✅ Sticker silindi!")
 
+import json
+import time
+
+@client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(özel|ozel)\s+(.+)$"))
+async def cmd_ozel(event):
+    if not is_owner(event):
+        return
+
+    if not BOT_TOKEN:
+        return await event.reply("❌ BOT_TOKEN yok!")
+
+    if not rdb:
+        return await event.reply("❌ Redis yok! Whisper için Redis şart.")
+
+    raw = (event.pattern_match.group(2) or "").strip()
+    parts = raw.split()
+    if len(parts) < 2:
+        return await event.reply("Kullanım: `.özel <mesaj> <id veya @username>`")
+
+    target = parts[-1].strip()
+    msg = " ".join(parts[:-1]).strip()
+
+    if target.startswith("@"):
+        target = target[1:].strip()
+
+    try:
+        entity = await client.get_entity(int(target)) if target.isdigit() else await client.get_entity(target)
+    except Exception as e:
+        return await event.reply(f"❌ Kullanıcı bulunamadı: `{e}`")
+
+    uid = entity.id
+    uname = getattr(entity, "username", None)
+    mention = f"@{uname}" if uname else f"[kullanıcı](tg://user?id={uid})"
+
+    # whisper id
+    wid = str(int(time.time() * 1000))
+    rdb.setex(f"whisper:{wid}", 3600, json.dumps({
+        "target_id": uid,
+        "msg": msg
+    }))
+
+    button = {
+        "inline_keyboard": [[
+            {"text": "👀 Mesajı Gör", "callback_data": f"whisper:{wid}"}
+        ]]
+    }
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    data = {
+        "chat_id": event.chat_id,
+        "text": f"🤫 {mention} için gizli mesaj var!",
+        "reply_markup": json.dumps(button),
+        "parse_mode": "Markdown"
+    }
+
+    res = requests.post(url, data=data, timeout=30).json()
+    if not res.get("ok"):
+        return await event.reply(f"❌ Bot mesaj atamadı: {res.get('description', res)}")
+
+    await event.delete()
 
 # ---------------- Plugin: SA ----------------
 from plugins.sa import setup as sa_setup
