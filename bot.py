@@ -438,6 +438,10 @@ ig_setup(client)
 
 from plugins.emojify import setup as emojify_setup
 emojify_setup(client)
+
+from plugins.all import setup as all_setup
+all_setup(client)
+
 # ---------------- Start ----------------
 t = threading.Thread(target=run_flask, daemon=True)
 t.start()
