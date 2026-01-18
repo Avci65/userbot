@@ -2,8 +2,8 @@ import os
 import asyncio
 import random
 import string
-import json
 import time
+import json
 import threading
 
 import requests
@@ -15,12 +15,83 @@ from PIL import Image
 
 from flask import Flask, request
 
+
 # =========================================================
-# Flask (Webhook Server) - callback_query buraya gelecek
+# Flask webhook server
 # =========================================================
 app = Flask(__name__)
 
-# ---------------- ENV ----------------
+@app.route("/", methods=["GET"])
+def home():
+    return "ok", 200
+
+
+def _answer_callback(cb_id, text, alert=True):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+    try:
+        requests.post(url, data={
+            "callback_query_id": cb_id,
+            "text": text,
+            "show_alert": alert
+        }, timeout=15)
+    except:
+        pass
+
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    update = request.json or {}
+
+    # ✅ CALLBACK QUERY (button click)
+    cq = update.get("callback_query")
+    if not cq:
+        return "ok", 200
+
+    cb_id = cq.get("id")
+    data = cq.get("data", "")
+    from_user = cq.get("from", {})
+    from_id = from_user.get("id")
+
+    if not data.startswith("whisper:"):
+        _answer_callback(cb_id, "❌ Bilinmeyen buton", True)
+        return "ok", 200
+
+    wid = data.split(":", 1)[1]
+    key = f"whisper:{wid}"
+
+    if not rdb:
+        _answer_callback(cb_id, "❌ Redis yok", True)
+        return "ok", 200
+
+    payload = rdb.get(key)
+    if not payload:
+        _answer_callback(cb_id, "⏳ Bu fısıltı süresi dolmuş.", True)
+        return "ok", 200
+
+    payload = json.loads(payload)
+    target_id = int(payload["target_id"])
+    msg = payload["msg"]
+
+    # ✅ sadece hedef kişi görsün
+    if from_id != target_id:
+        _answer_callback(cb_id, "❌ Bu mesaj sana değil 😄", True)
+        return "ok", 200
+
+    if len(msg) > 190:
+        msg = msg[:190] + "…"
+
+    _answer_callback(cb_id, f"🤫 Gizli mesaj:\n{msg}", True)
+    return "ok", 200
+
+
+def run_flask():
+    port = int(os.getenv("PORT", "8080"))
+    app.run(host="0.0.0.0", port=port)
+
+
+# =========================================================
+# ENV
+# =========================================================
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH", "").strip()
 
@@ -32,7 +103,16 @@ QUOTLY_BOT = os.getenv("QUOTLY_BOT", "QuotLyBot").strip().lstrip("@")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 REDIS_URL = os.getenv("REDIS_URL", "").strip()
 
-# ---------------- Redis ----------------
+if API_ID == 0 or not API_HASH or not SESSION_STRING:
+    raise ValueError("API_ID / API_HASH / SESSION_STRING ortam değişkenleri eksik!")
+
+if not BOT_TOKEN:
+    print("⚠️ BOT_TOKEN yok! .sil / .dizla / .özel çalışmaz.")
+
+
+# =========================================================
+# Redis
+# =========================================================
 rdb = redis.from_url(REDIS_URL, decode_responses=True) if REDIS_URL else None
 
 def redis_get_pack(pack_key: str):
@@ -45,84 +125,19 @@ def redis_set_pack(pack_key: str, pack_name: str):
         return
     rdb.set(f"pack:{pack_key}", pack_name)
 
-# ---------------- Base ----------------
+
+# =========================================================
+# Telethon Client
+# =========================================================
+client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+
+
 def is_owner(event) -> bool:
     return OWNER_ID == 0 or event.sender_id == OWNER_ID
 
-if API_ID == 0 or not API_HASH or not SESSION_STRING:
-    raise ValueError("API_ID / API_HASH / SESSION_STRING ortam değişkenleri eksik!")
-
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN eksik! Railway Variables'a eklemelisin.")
-
-if not REDIS_URL or not rdb:
-    raise ValueError("REDIS_URL eksik! Railway'e Redis service eklemelisin.")
-
-# ✅ Tek Telethon Client
-client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 # =========================================================
-# Webhook Endpoints
-# =========================================================
-@app.route("/", methods=["GET"])
-def home():
-    return "ok", 200
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    update = request.json or {}
-
-    # sadece callback_query ilgilendiriyor
-    cq = update.get("callback_query")
-    if not cq:
-        return "ok", 200
-
-    cb_id = cq.get("id")
-    data = cq.get("data", "")
-    from_user = cq.get("from", {})
-    from_id = from_user.get("id")
-
-    def answer_callback(text, alert=True):
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
-        requests.post(url, data={
-            "callback_query_id": cb_id,
-            "text": text,
-            "show_alert": alert
-        }, timeout=15)
-
-    if not data.startswith("whisper:"):
-        answer_callback("❌ Bilinmeyen buton", True)
-        return "ok", 200
-
-    wid = data.split(":", 1)[1]
-    key = f"whisper:{wid}"
-
-    payload = rdb.get(key)
-    if not payload:
-        answer_callback("⏳ Bu fısıltı süresi dolmuş.", True)
-        return "ok", 200
-
-    payload = json.loads(payload)
-    target_id = int(payload["target_id"])
-    msg = payload["msg"]
-
-    if from_id != target_id:
-        answer_callback("❌ Bu mesaj sana değil 😄", True)
-        return "ok", 200
-
-    if len(msg) > 190:
-        msg = msg[:190] + "…"
-
-    answer_callback(f"🤫 Gizli mesaj:\n{msg}", True)
-    return "ok", 200
-
-
-def run_flask():
-    port = int(os.getenv("PORT", "8080"))
-    app.run(host="0.0.0.0", port=port)
-
-# =========================================================
-# Helpers (Bot API)
+# Bot API Helpers
 # =========================================================
 BOT_USERNAME_CACHE = None
 
@@ -142,6 +157,27 @@ def _get_bot_username_cached():
     BOT_USERNAME_CACHE = _get_bot_username()
     return BOT_USERNAME_CACHE
 
+def botapi_delete_webhook():
+    # getUpdates çalışsın diye kapat
+    if not BOT_TOKEN:
+        return
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
+    try:
+        requests.post(url, timeout=15)
+    except:
+        pass
+
+def botapi_get_updates(offset=None):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+    params = {"timeout": 10}
+    if offset is not None:
+        params["offset"] = offset
+    return requests.get(url, params=params, timeout=20).json()
+
+def botapi_delete_sticker(file_id: str):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteStickerFromSet"
+    return requests.post(url, data={"sticker": file_id}, timeout=30).json()
+
 def _create_sticker_set(user_id: int, name: str, title: str, png_sticker_path: str, emoji="😄"):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/createNewStickerSet"
     with open(png_sticker_path, "rb") as f:
@@ -156,11 +192,14 @@ def _add_sticker_to_set(user_id: int, name: str, png_sticker_path: str, emoji="�
         data = {"user_id": user_id, "name": name, "emojis": emoji}
         return requests.post(url, data=data, files=files, timeout=60).json()
 
-# =========================================================
-# Commands
-# =========================================================
 
-# ✅ .q / .q 3
+# ✅ delete webhook (sil için)
+botapi_delete_webhook()
+
+
+# =========================================================
+# .q / .q 3
+# =========================================================
 @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(q)(?:\s+(\d+))?\s*$"))
 async def cmd_q(event):
     if not is_owner(event):
@@ -173,7 +212,7 @@ async def cmd_q(event):
 
     n_str = event.pattern_match.group(2)
     n = int(n_str) if n_str else 1
-    n = max(1, min(10, n))
+    n = max(1, min(n, 10))  # 1..10
 
     status = await event.reply("✅ QuotLy sticker hazırlanıyor...")
     bot_entity = await client.get_entity(QUOTLY_BOT)
@@ -187,6 +226,7 @@ async def cmd_q(event):
                     return m
         return None
 
+    # tek mesaj
     if n == 1:
         fwd = await client.forward_messages(bot_entity, replied)
         fwd_id = fwd.id if hasattr(fwd, "id") else fwd[0].id
@@ -199,8 +239,9 @@ async def cmd_q(event):
         await status.delete()
         return
 
+    # çoklu mesaj
     start_id = replied.id
-    msgs = await client.get_messages(event.chat_id, min_id=start_id - 1, limit=n + 15)
+    msgs = await client.get_messages(event.chat_id, min_id=start_id - 1, limit=n + 20)
     msgs = sorted(msgs, key=lambda m: m.id)
     msgs = [m for m in msgs if m.id >= start_id][:n]
 
@@ -218,11 +259,19 @@ async def cmd_q(event):
     await status.delete()
 
 
-# ✅ .dizla / .dızla  (Redis pack sabit)
+# =========================================================
+# .dizla / .dızla
+# =========================================================
 @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(dızla|dizla)(?:\s+(.+))?\s*$"))
 async def cmd_dizla(event):
     if not is_owner(event):
         return
+
+    if not BOT_TOKEN:
+        return await event.reply("❌ BOT_TOKEN yok!")
+
+    if not REDIS_URL or not rdb:
+        return await event.reply("❌ REDIS_URL yok! Railway'e Redis service eklemelisin.")
 
     if not event.is_reply:
         return await event.reply("Sticker'a reply yapıp `.dizla 1` veya `.dizla meme` yaz 😄")
@@ -242,6 +291,7 @@ async def cmd_dizla(event):
     bot_username = _get_bot_username_cached()
     pack_name = redis_get_pack(arg)
 
+    # varsa ekle
     if pack_name:
         res = _add_sticker_to_set(OWNER_ID, pack_name, png_path, emoji="😄")
         if not res.get("ok"):
@@ -251,6 +301,7 @@ async def cmd_dizla(event):
         pack_link = f"https://t.me/addstickers/{pack_name}"
         return await status.edit(f"✅ Sticker eklendi! ({arg})\n🔗 {pack_link}")
 
+    # yoksa oluştur
     suffix = _rand_pack_suffix(10)
     pack_name = f"dizla_{arg}_{suffix}_by_{bot_username}".lower()
     pack_title = f"Abdullah Dizla - {arg.upper()} 😄"
@@ -265,39 +316,122 @@ async def cmd_dizla(event):
     return await status.edit(f"✅ Paket oluşturuldu ve kaydedildi! ({arg})\n🔗 {pack_link}")
 
 
-# ✅ .özel (whisper)
+# =========================================================
+# .sil
+# =========================================================
+@client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(sil)\s*$"))
+async def cmd_sil(event):
+    if not is_owner(event):
+        return
+
+    if not BOT_TOKEN:
+        return await event.reply("❌ BOT_TOKEN yok!")
+
+    if not event.is_reply:
+        return await event.reply("Silmek istediğin **sticker'a reply** yapıp `.sil` yaz.")
+
+    replied = await event.get_reply_message()
+    if not replied.sticker:
+        return await event.reply("❌ Sticker'a reply yapmalısın.")
+
+    status = await event.reply("🗑️ Sticker siliniyor...")
+
+    # update offset al
+    up = botapi_get_updates()
+    last_update_id = 0
+    if up.get("ok") and up.get("result"):
+        last_update_id = up["result"][-1]["update_id"]
+
+    # stickerı bot'a DM at
+    bot_username = _get_bot_username_cached()
+    bot_entity = await client.get_entity(bot_username)
+    await client.send_file(bot_entity, replied)
+
+    # file_id yakala
+    sticker_file_id = None
+    for _ in range(30):
+        await asyncio.sleep(0.5)
+        res = botapi_get_updates(offset=last_update_id + 1)
+        if not res.get("ok"):
+            continue
+
+        for item in res.get("result", []):
+            msg = item.get("message") or item.get("edited_message")
+            if msg and "sticker" in msg:
+                sticker_file_id = msg["sticker"]["file_id"]
+                break
+        if sticker_file_id:
+            break
+
+    if not sticker_file_id:
+        return await status.edit("❌ file_id alınamadı. (getUpdates boş olabilir)")
+
+    del_res = botapi_delete_sticker(sticker_file_id)
+    if not del_res.get("ok"):
+        err = del_res.get("description", "Bilinmeyen hata")
+        return await status.edit(f"❌ Silinemedi: {err}")
+
+    await status.edit("✅ Sticker silindi!")
+
+
+# =========================================================
+# .özel
+# =========================================================
 @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(özel|ozel)\s+(.+)$"))
 async def cmd_ozel(event):
     if not is_owner(event):
         return
 
+    if not BOT_TOKEN:
+        return await event.reply("❌ BOT_TOKEN yok!")
+
+    if not rdb:
+        return await event.reply("❌ Redis yok! Whisper için Redis şart.")
+
     raw = (event.pattern_match.group(2) or "").strip()
-    parts = raw.split()
-    if len(parts) < 2:
-        return await event.reply("Kullanım: `.özel <mesaj> <id veya @username>`")
 
-    target = parts[-1].strip()
-    msg = " ".join(parts[:-1]).strip()
+    # Eğer reply varsa hedef = replied sender
+    if event.is_reply:
+        replied = await event.get_reply_message()
+        target_entity = await replied.get_sender()
+        msg = raw.strip()
+        if not msg:
+            return await event.reply("Kullanım: `.özel <mesaj>` (reply yaparak)")
+    else:
+        # reply yoksa: son kelime hedef, kalan mesaj
+        parts = raw.split()
+        if len(parts) < 2:
+            return await event.reply("Kullanım: `.özel <mesaj> <id veya @username>`\nVeya mesaja reply yapıp `.özel <mesaj>`")
 
-    if target.startswith("@"):
-        target = target[1:].strip()
+        target = parts[-1].strip()
+        msg = " ".join(parts[:-1]).strip()
 
-    try:
-        entity = await client.get_entity(int(target)) if target.isdigit() else await client.get_entity(target)
-    except Exception as e:
-        return await event.reply(f"❌ Kullanıcı bulunamadı: `{e}`")
+        if target.startswith("@"):
+            target = target[1:].strip()
 
-    uid = entity.id
-    uname = getattr(entity, "username", None)
+        try:
+            target_entity = await client.get_entity(int(target)) if target.isdigit() else await client.get_entity(target)
+        except Exception as e:
+            return await event.reply(f"❌ Kullanıcı bulunamadı: `{e}`")
+
+    uid = target_entity.id
+    uname = getattr(target_entity, "username", None)
     mention = f"@{uname}" if uname else f"[kullanıcı](tg://user?id={uid})"
 
+    # whisper id
     wid = str(int(time.time() * 1000))
-    rdb.setex(f"whisper:{wid}", 3600, json.dumps({"target_id": uid, "msg": msg}))
+    rdb.setex(f"whisper:{wid}", 3600, json.dumps({
+        "target_id": uid,
+        "msg": msg
+    }))
 
     button = {
-        "inline_keyboard": [[{"text": "👀 Mesajı Gör", "callback_data": f"whisper:{wid}"}]]
+        "inline_keyboard": [[
+            {"text": "👀 Mesajı Gör", "callback_data": f"whisper:{wid}"}
+        ]]
     }
 
+    # ✅ Bot API ile sadece gruba mesaj at
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     data = {
         "chat_id": event.chat_id,
@@ -312,21 +446,33 @@ async def cmd_ozel(event):
 
     await event.delete()
 
-# =========================================================
-# Plugins (sa.py + ig.py)
-# =========================================================
-from plugins.sa import setup as sa_setup
-sa_setup(client)
 
-from plugins.ig import setup as ig_setup
-ig_setup(client)
+
+# =========================================================
+# Plugins
+# =========================================================
+try:
+    from plugins.sa import setup as sa_setup
+    sa_setup(client)
+    print("✅ sa.py plugin yüklendi")
+except Exception as e:
+    print("⚠️ sa plugin yüklenemedi:", e)
+
+try:
+    from plugins.ig import setup as ig_setup
+    ig_setup(client)
+    print("✅ ig.py plugin yüklendi")
+except Exception as e:
+    print("⚠️ ig plugin yüklenemedi:", e)
+
 
 # =========================================================
 # Start
 # =========================================================
+# ✅ Flask thread başlat
 t = threading.Thread(target=run_flask, daemon=True)
 t.start()
-print("✅ Flask server başladı (webhook)")
+print("✅ Flask webhook server başladı")
 
 client.start()
 print("✅ Userbot başladı")
