@@ -8,6 +8,73 @@ import redis
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from PIL import Image
+import threading
+from flask import Flask, request
+
+# Flask app
+app = Flask(__name__)
+
+@app.route("/", methods=["GET"])
+def home():
+    return "ok", 200
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    update = request.json or {}
+
+    cq = update.get("callback_query")
+    if not cq:
+        return "ok", 200
+
+    cb_id = cq.get("id")
+    data = cq.get("data", "")
+    from_user = cq.get("from", {})
+    from_id = from_user.get("id")
+
+    def answer_callback(text, alert=True):
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+        requests.post(url, data={
+            "callback_query_id": cb_id,
+            "text": text,
+            "show_alert": alert
+        }, timeout=15)
+
+    # sadece whisper callback kabul
+    if not data.startswith("whisper:"):
+        answer_callback("❌ Bilinmeyen buton", True)
+        return "ok", 200
+
+    wid = data.split(":", 1)[1]
+    key = f"whisper:{wid}"
+
+    if not rdb:
+        answer_callback("❌ Redis yok", True)
+        return "ok", 200
+
+    payload = rdb.get(key)
+    if not payload:
+        answer_callback("⏳ Bu fısıltı süresi dolmuş.", True)
+        return "ok", 200
+
+    payload = json.loads(payload)
+    target_id = int(payload["target_id"])
+    msg = payload["msg"]
+
+    if from_id != target_id:
+        answer_callback("❌ Bu mesaj sana değil 😄", True)
+        return "ok", 200
+
+    if len(msg) > 190:
+        msg = msg[:190] + "…"
+
+    answer_callback(f"🤫 Gizli mesaj:\n{msg}", True)
+    return "ok", 200
+
+
+def run_flask():
+    port = int(os.getenv("PORT", "8080"))
+    app.run(host="0.0.0.0", port=port)
+
 
 # ---------------- ENV ----------------
 API_ID = int(os.getenv("API_ID", "0"))
@@ -97,8 +164,6 @@ def _add_sticker_to_set(user_id: int, name: str, png_sticker_path: str, emoji="�
         data = {"user_id": user_id, "name": name, "emojis": emoji}
         return requests.post(url, data=data, files=files, timeout=60).json()
 
-# ✅ webhook kapat
-botapi_delete_webhook()
 
 # ---------------- Commands ----------------
 
@@ -335,7 +400,11 @@ sa_setup(client)
 from plugins.ig import setup as ig_setup
 ig_setup(client)
 
-# ---------------- Start ----------------
+# ✅ Flask thread başlat
+t = threading.Thread(target=run_flask, daemon=True)
+t.start()
+print("✅ Flask webhook server başladı")
+
 client.start()
 print("✅ Userbot başladı")
 client.run_until_disconnected()
