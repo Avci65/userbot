@@ -379,6 +379,45 @@ async def cmd_sil(event):
 
     await status.edit("✅ Sticker silindi!")
 
+@client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(özel|ozel)\s+(.+)$"))
+async def cmd_ozel_inline_helper(event):
+    if not is_owner(event):
+        return
+
+    raw = (event.pattern_match.group(2) or "").strip()
+    parts = raw.split()
+    if len(parts) < 2:
+        return await event.reply(
+            "Kullanım: `.özel <mesaj> <@username veya id>`\n"
+            "Örn: `.özel selam @kyura`"
+        )
+
+    target = parts[-1].strip()
+    msg = " ".join(parts[:-1]).strip()
+
+    if not msg:
+        return await event.reply("❌ Mesaj boş olamaz.")
+
+    # target normalize
+    if not target.startswith("@") and not target.isdigit():
+        target = "@" + target
+
+    bot_username = _get_bot_username_cached()  # sticker65_bot
+
+    inline_text = f"@{bot_username} {msg} {target}"
+
+    # kullanıcıya hazır komut ver
+    await event.respond(
+        "📌 <b>Fısıltı hazır</b> (kopyala-yapıştır):\n"
+        f"<code>{inline_text}</code>\n\n"
+        "➡️ Gönderince bot sonucu çıkacak, onu seç 👍",
+        parse_mode="HTML"
+    )
+
+    # kendi .özel mesajını sil
+    await event.delete()
+
+
 # ---------------- Plugins ----------------
 try:
     from plugins.sa import setup as sa_setup
