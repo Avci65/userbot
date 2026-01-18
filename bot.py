@@ -388,43 +388,53 @@ async def cmd_auto_whisper(event):
     msg_content = event.pattern_match.group(1).strip()
     target = event.pattern_match.group(2).strip()
 
-    if not msg_content or not target:
-        return await event.reply("Kullanım: `.özel mesaj @kullanıcı` veya `.özel mesaj 12345` ")
-
-    # Username'den @ işaretini kaldır (karşılaştırma için)
+    # Kullanıcı adından @ işaretini temizle (karşılaştırma için)
     clean_target = target.lstrip("@")
 
     # Benzersiz bir ID oluştur (Redis için)
     wid = str(int(time.time() * 1000))
 
-    # Mesajı Redis'e kaydet (Mevcut mantığınla uyumlu)
+    # 1) Redis Kaydı
     if rdb:
         rdb.setex(f"whisper:{wid}", 3600, json.dumps({
             "target": clean_target,
             "msg": msg_content
         }))
     else:
-        return await event.edit("❌ Redis bağlantısı yok, fısıltı oluşturulamadı.")
+        await event.edit("❌ Redis bağlantısı yok!")
+        return
 
-    # Bot üzerinden gruptaki butonu gönder
+    # 2) Bot API ile Buton Gönderme
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    
+    # Buton yapısını hazırla
+    reply_markup = {
+        "inline_keyboard": [[
+            {"text": "👀 Mesajı Gör", "callback_data": f"whisper:{wid}"}
+        ]]
+    }
+
     payload = {
         "chat_id": event.chat_id,
         "text": f"🤫 <b>{target}</b> için gizli bir mesaj var!",
         "parse_mode": "HTML",
-        "reply_markup": json.dumps({
-            "inline_keyboard": [[
-                {"text": "👀 Mesajı Gör", "callback_id": f"whisper:{wid}", "callback_data": f"whisper:{wid}"}
-            ]]
-        })
+        "reply_markup": json.dumps(reply_markup)
     }
 
     try:
-        requests.post(url, data=payload, timeout=20)
-        # Kendi yazdığın komutu sil (temizlik için)
-        await event.delete()
+        # İstek gönder
+        response = requests.post(url, json=payload, timeout=20).json()
+        
+        if response.get("ok"):
+            # Eğer buton başarıyla gittiyse kendi yazdığın komutu sil
+            await event.delete()
+        else:
+            # Hata varsa mesajı silme, hatayı yaz ki görelim
+            error_msg = response.get("description", "Bilinmeyen hata")
+            await event.edit(f"❌ Bot mesajı gönderemedi: {error_msg}")
+            
     except Exception as e:
-        await event.edit(f"Hata oluştu: {str(e)}")
+        await event.edit(f"⚠️ Sistem hatası: {str(e)}")
 
 # ---------------- Plugins ----------------
 try:
