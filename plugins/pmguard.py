@@ -1,6 +1,7 @@
 # plugins/pmguard.py
 import time
 from telethon import events
+from plugins._help import add_help
 
 # bot.py içinde rdb yoksa bile çalışsın diye local fallback
 PMGUARD_ENABLED_LOCAL = False

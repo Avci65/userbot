@@ -83,3 +83,4 @@ def setup(client):
 
         ALL_RUNNING[chat_id] = False
         await event.edit("✅ `.all` durduruldu.")
+from plugins._help import add_help

@@ -60,3 +60,4 @@ def setup(client):
         # bilgi mesajı (isteğe bağlı)
         await client.send_message(event.chat_id, f"✅ Purge tamamlandı. Silinen mesaj: **{deleted}**")
 
+from plugins._help import add_help

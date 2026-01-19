@@ -11,6 +11,9 @@
 from telethon import events
 
 
+
+from plugins._help import add_help
+
 def setup(client):
     basemojitext = [
         "a", "b", "c", "ç", "d", "e", "f", "g", "ğ", "h", "i", "j", "k", "l", "m", "n", "o", "ö",

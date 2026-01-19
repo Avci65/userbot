@@ -98,3 +98,4 @@ def setup(client):
             "`fa` فارسی\n\n"
             "Kullanım: `.tr en merhaba`"
         )
+from plugins._help import add_help

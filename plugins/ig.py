@@ -1,6 +1,7 @@
 import os
 import asyncio
 from telethon import events
+from plugins._help import add_help
 
 def setup(client):
     print("✅ ig.py plugin yüklendi")
