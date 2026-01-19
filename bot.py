@@ -445,6 +445,8 @@ from plugins.purge import setup as purge_setup
 purge_setup(client)
 from plugins.translate import setup as translate_setup
 translate_setup(client)
+from plugins.pmguard import setup as pmguard_setup
+pmguard_setup(client, rdb)
 
 # ---------------- Start ----------------
 t = threading.Thread(target=run_flask, daemon=True)
