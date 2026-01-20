@@ -32,9 +32,9 @@ def setup(client):
             await event.edit(frame)
 
 
-# HELP entegrasyonu (purge örneğindeki gibi)
 from plugins._help import add_help
 add_help(
     "yalan",
-    ".yalan\nYalan animasyonu gönderir."
+    ".yalan",
+    "Yalan animasyonu gönderir."
 )
