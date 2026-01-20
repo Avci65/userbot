@@ -1,6 +1,7 @@
 # plugins/purge.py
 from telethon import events
 from telethon.errors import MessageDeleteForbiddenError, RPCError
+import asyncio  # ✅ EKLENDİ
 
 def setup(client):
 
@@ -57,7 +58,18 @@ def setup(client):
         except Exception as e:
             return await event.edit(f"❌ Hata: `{str(e)}`")
 
-        # bilgi mesajı (isteğe bağlı)
-        await client.send_message(event.chat_id, f"✅ Purge tamamlandı. Silinen mesaj: **{deleted}**")
+        # ✅ bilgi mesajı gönder (bunu 5 sn sonra sil)
+        info_msg = await client.send_message(
+            event.chat_id,
+            f"✅ Purge tamamlandı. Silinen mesaj: **{deleted}**"
+        )
+
+        await asyncio.sleep(5)
+        try:
+            await info_msg.delete()
+        except:
+            pass
+
 
 from plugins._help import add_help
+add_help("temizlik", ".purge", "Reply’den buraya kadar mesaj siler.")

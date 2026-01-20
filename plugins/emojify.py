@@ -12,7 +12,7 @@ from telethon import events
 
 
 
-from plugins._help import add_help
+
 
 def setup(client):
     basemojitext = [
@@ -1100,3 +1100,5 @@ def setup(client):
             await event.edit("".join(blocks))
         except Exception:
             await event.edit("**❎ Bu metin çok büyük!**")
+from plugins._help import add_help
+add_help("EMOJİİ", ".cmoji (emoji) <mesaj>", "seçtiğin emoji ile kelime oluşturma")

@@ -34,3 +34,5 @@ def setup(client):
         for ch in animation_chars:
             await asyncio.sleep(animation_interval)
             await event.edit(ch)
+from plugins._help import add_help
+add_help("iyi geceler mesajı ", ".ig", "şekilli iyi geceler mesajı atar")

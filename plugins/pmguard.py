@@ -1,7 +1,6 @@
 # plugins/pmguard.py
 import time
 from telethon import events
-from plugins._help import add_help
 
 # bot.py içinde rdb yoksa bile çalışsın diye local fallback
 PMGUARD_ENABLED_LOCAL = False
@@ -11,6 +10,7 @@ PM_COUNTER = {}  # user_id -> {"count": int, "ts": float}
 # spam limit
 MAX_PM = 3
 WINDOW_SEC = 60
+
 
 def setup(client, rdb=None):
 
@@ -53,6 +53,35 @@ def setup(client, rdb=None):
             return rdb.get(_key_allow(uid)) == "1"
         return uid in ALLOWED_LOCAL
 
+    async def _resolve_target_user(event):
+        """
+        Kullanıcı çözümleme:
+        1) Reply varsa replied.sender_id
+        2) Komut parametresi varsa @username / id ile çöz
+        """
+        replied = await event.get_reply_message()
+        if replied and replied.sender_id:
+            return replied.sender_id
+
+        # komuttan sonra argüman
+        arg = (event.pattern_match.group(2) or "").strip()
+        if not arg:
+            return None
+
+        # @username veya id
+        try:
+            ent = await client.get_entity(arg)
+            return ent.id
+        except:
+            return None
+
+    async def _get_name(uid: int) -> str:
+        try:
+            ent = await client.get_entity(uid)
+            return (getattr(ent, "first_name", None) or getattr(ent, "title", None) or "User")
+        except:
+            return "User"
+
     # ---------------------------
     # .pmguard on/off
     # ---------------------------
@@ -68,41 +97,40 @@ def setup(client, rdb=None):
             return await event.edit("❎ PM Guard kapatıldı.")
 
     # ---------------------------
-    # .allow (DM'de reply ile)
+    # .allow  (DM + Grup)
+    # - reply ile
+    # - veya .allow @username / .allow 12345
     # ---------------------------
-    @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(allow)\s*$"))
+    @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(allow)(?:\s+(.+))?\s*$"))
     async def cmd_allow(event):
-        if not event.is_private:
-            return await event.edit("❌ `.allow` sadece özel mesajda kullanılır (DM).")
+        uid = await _resolve_target_user(event)
+        if not uid:
+            return await event.edit(
+                "❌ Kullanım:\n"
+                "Reply + `.allow`\n"
+                "`.allow @kullaniciadi`\n"
+                "`.allow user_id`"
+            )
 
-        replied = await event.get_reply_message()
-        if not replied:
-            return await event.edit("❌ `.allow` için bir mesaja reply yap.")
-
-        uid = replied.sender_id
         _allow_user(uid)
-
-        try:
-            ent = await client.get_entity(uid)
-            name = (getattr(ent, "first_name", None) or "User")
-        except:
-            name = "User"
-
+        name = await _get_name(uid)
         await event.edit(f"✅ `{name}` izinlilere eklendi. (whitelist)")
 
     # ---------------------------
-    # .block (DM'de reply ile)
+    # .block  (DM + Grup)
+    # - reply ile
+    # - veya .block @username / .block 12345
     # ---------------------------
-    @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(block)\s*$"))
+    @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(block)(?:\s+(.+))?\s*$"))
     async def cmd_block(event):
-        if not event.is_private:
-            return await event.edit("❌ `.block` sadece özel mesajda kullanılır (DM).")
-
-        replied = await event.get_reply_message()
-        if not replied:
-            return await event.edit("❌ `.block` için bir mesaja reply yap.")
-
-        uid = replied.sender_id
+        uid = await _resolve_target_user(event)
+        if not uid:
+            return await event.edit(
+                "❌ Kullanım:\n"
+                "Reply + `.block`\n"
+                "`.block @kullaniciadi`\n"
+                "`.block user_id`"
+            )
 
         # whitelistten çıkar
         _disallow_user(uid)
@@ -112,7 +140,8 @@ def setup(client, rdb=None):
         except Exception as e:
             return await event.edit(f"❌ Block başarısız: `{str(e)}`")
 
-        await event.edit("⛔ Kullanıcı blocklandı.")
+        name = await _get_name(uid)
+        await event.edit(f"⛔ `{name}` blocklandı.")
 
     # ---------------------------
     # PM Guard Listener (incoming)
@@ -124,8 +153,6 @@ def setup(client, rdb=None):
             return
 
         uid = event.sender_id
-
-        # kendimiz/servis mesajları vs
         if uid is None:
             return
 
@@ -171,3 +198,10 @@ def setup(client, rdb=None):
 
         # ara uyarı
         await event.reply(f"⚠️ Uyarı: ({info['count']}/{MAX_PM})")
+
+
+# ---- HELP ----
+from plugins._help import add_help
+add_help("pmguard", ".pmguard on/off", "PM Guard aç/kapat (DM spam engelleme)")
+add_help("pmguard", ".allow (reply/@user/id)", "Kullanıcıyı whitelist'e ekler (grup veya DM)")
+add_help("pmguard", ".block (reply/@user/id)", "Kullanıcıyı whitelistten çıkarır ve blocklar (grup veya DM)")

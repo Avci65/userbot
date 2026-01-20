@@ -32,4 +32,6 @@ def setup(client):
         for ch in animation_chars:
             await event.edit(ch)
             await asyncio.sleep(animation_interval)
+
 from plugins._help import add_help
+add_help("selam mesajı", ".sa", "havalı selam verir")

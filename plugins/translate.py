@@ -99,3 +99,8 @@ def setup(client):
             "Kullanım: `.tr en merhaba`"
         )
 from plugins._help import add_help
+
+add_help("translate", ".tr <hedef_dil> <metin> / reply + .tr <hedef_dil>", "Metni hedef dile çevirir. (Varsayılan hedef: tr)")
+add_help("translate", ".translate <hedef_dil> <metin>", "(.tr ile aynı) Metni hedef dile çevirir.")
+add_help("translate", ".lang / .langs / .diller", "Dil kodu örneklerini gösterir.")
+
