@@ -451,7 +451,7 @@ from plugins.help import setup as help_setup
 help_setup(client)
 from plugins.yalan import setup as yalan_setup
 yalan_setup(client)
-from.plugins.filter import setup as filter_setup
+from plugins.filter import setup as filter_setup
 filter_setup(client)
 
 # ---------------- Start ----------------
