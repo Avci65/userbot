@@ -84,3 +84,4 @@ def setup(client):
         ALL_RUNNING[chat_id] = False
         await event.edit("✅ `.all` durduruldu.")
 from plugins._help import add_help
+add_help("herkesi etiketleme", ".all veye .all 25 (sebeb)", "etiket atmak için vardır")
