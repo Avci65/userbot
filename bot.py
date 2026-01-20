@@ -449,6 +449,8 @@ from plugins.pmguard import setup as pmguard_setup
 pmguard_setup(client, rdb)
 from plugins.help import setup as help_setup
 help_setup(client)
+from plugins.yalan import setup as yalan_setup
+yalan_setup(client)
 
 
 # ---------------- Start ----------------
