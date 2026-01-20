@@ -5,6 +5,8 @@ from telethon import events
 
 def setup(client):
     API_KEY = os.getenv("OPENWEATHER_API_KEY", "").strip()
+    print("✅ OPENWEATHER_API_KEY:", API_KEY[:6], "len=", len(API_KEY))
+
     if not API_KEY:
         print("⚠️ hava.py: OPENWEATHER_API_KEY yok, hava sistemi çalışmayacak.")
         return
