@@ -457,6 +457,9 @@ from plugins.hava import setup as hava_setup
 hava_setup(client)
 from plugins.oldest import setup as oldest_setup
 oldest_setup(client)
+from plugins.hack import setup as hack_setup
+hack_setup(client)
+
 
 # ---------------- Start ----------------
 t = threading.Thread(target=run_flask, daemon=True)
