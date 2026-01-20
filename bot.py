@@ -453,6 +453,8 @@ from plugins.yalan import setup as yalan_setup
 yalan_setup(client)
 from plugins.filter import setup as filter_setup
 filter_setup(client)
+from plugins.hava import setup as hava_setup
+hava_setup(client)
 
 # ---------------- Start ----------------
 t = threading.Thread(target=run_flask, daemon=True)
