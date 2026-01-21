@@ -12,6 +12,7 @@ def setup(client):
 
     OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 
+    # temp klasörü
     temp_dir = "./temp"
     os.makedirs(temp_dir, exist_ok=True)
 
@@ -21,9 +22,13 @@ def setup(client):
     def clean_invisible(text: str) -> str:
         if not text:
             return text
+        # görünmez karakterleri temizle
         return re.sub(r"[\u200b-\u200f\u202a-\u202e\u2060-\u206f]", "", text)
 
     def extract_user_obj(user_full):
+        """
+        Telethon sürümlerine göre UserFull içinden User nesnesini çeker.
+        """
         if hasattr(user_full, "user") and user_full.user:
             return user_full.user
         if hasattr(user_full, "users") and user_full.users:
@@ -31,15 +36,21 @@ def setup(client):
         return None
 
     async def get_full_user_from_event(event):
+        """
+        Reply -> o kişiyi alır
+        Reply yoksa -> .klon <username/id>
+        """
         # reply varsa
         if event.reply_to_msg_id:
             reply = await event.get_reply_message()
             try:
+                # forward mesajlarda forward sahibini al
                 if reply.forward and (reply.forward.from_id or reply.forward.channel_id):
                     uid = reply.forward.from_id or reply.forward.channel_id
                     return await client(GetFullUserRequest(uid))
                 return await client(GetFullUserRequest(reply.sender_id))
-            except Exception:
+            except Exception as e:
+                print("⚠️ get_full_user reply error:", e)
                 return None
 
         # reply yoksa argüman al
@@ -51,46 +62,56 @@ def setup(client):
         try:
             entity = await client.get_entity(query)
             return await client(GetFullUserRequest(entity.id))
-        except Exception:
+        except Exception as e:
+            print("⚠️ get_full_user entity error:", e)
             return None
 
     async def backup_my_profile():
         """
-        Kendi profilini unklon için yedekler.
+        Unklon için kendi profilini yedekler.
+        (ad/soyad/bio + profil foto)
         """
         try:
             me_full = await client(GetFullUserRequest("me"))
             me_user = extract_user_obj(me_full)
             if not me_user:
-                return False, "user obj alınamadı"
+                return False, "User obj alınamadı"
 
             first_name = me_user.first_name or ""
             last_name = me_user.last_name or ""
             bio = getattr(me_full, "about", "") or ""
 
-            # profil fotonu indir
+            # profil foto indir
             my_photo = None
             try:
                 my_photo = await client.download_profile_photo("me", file=BACKUP_PHOTO)
-            except:
+            except Exception as e:
+                print("⚠️ Backup foto indirilemedi:", e)
                 my_photo = None
+
+            # gerçekten dosya var mı?
+            has_photo = False
+            if my_photo and os.path.exists(my_photo):
+                has_photo = True
 
             data = {
                 "first_name": first_name,
                 "last_name": last_name,
                 "bio": bio,
-                "has_photo": True if my_photo else False
+                "has_photo": has_photo
             }
 
             with open(BACKUP_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
 
             return True, None
+
         except Exception as e:
             return False, str(e)
 
     @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(klon)(?:\s|$)"))
     async def klon_handler(event):
+        # Owner check
         if OWNER_ID != 0 and event.sender_id != OWNER_ID:
             return
         if event.fwd_from:
@@ -98,7 +119,7 @@ def setup(client):
 
         await event.edit("🧬 Klon hazırlanıyor...")
 
-        # ✅ Backup al (yoksa bile klon devam eder)
+        # ✅ önce backup al
         ok, err = await backup_my_profile()
         if ok:
             print("✅ UnKlon backup alındı.")
@@ -107,7 +128,7 @@ def setup(client):
 
         replied_user = await get_full_user_from_event(event)
         if not replied_user:
-            await event.edit("❌ Kullanıcı bulunamadı.\nKullanım: `.klon` (yanıtla) veya `.klon @username`")
+            await event.edit("❌ Kullanıcı bulunamadı.\nKullanım: `.klon` (reply) veya `.klon @username`")
             return
 
         user_obj = extract_user_obj(replied_user)
@@ -117,11 +138,15 @@ def setup(client):
 
         user_id = user_obj.id
 
-        # profil foto indir (yoksa None döner)
+        # Profil foto indir
         profile_pic = None
         try:
-            profile_pic = await client.download_profile_photo(user_id, temp_dir)
-        except:
+            profile_pic = await client.download_profile_photo(user_id, file=temp_dir)
+        except Exception as e:
+            print("⚠️ Klon foto indirilemedi:", e)
+            profile_pic = None
+
+        if profile_pic and not os.path.exists(profile_pic):
             profile_pic = None
 
         # ad/soyad/bio
@@ -129,7 +154,7 @@ def setup(client):
 
         last_name = user_obj.last_name
         if last_name is None:
-            last_name = "⁪⁬⁮⁮⁮⁮ ‌‌‌‌"
+            last_name = "⁪⁬⁮⁮⁮⁮ ‌‌‌‌"  # boş soyad trick
         last_name = clean_invisible(last_name)[:64]
 
         bio = clean_invisible(getattr(replied_user, "about", "") or "")[:70]
@@ -143,18 +168,19 @@ def setup(client):
             await event.edit(f"❌ Profil güncellenemedi:\n`{e}`")
             return
 
-        # Foto varsa yükle
+        # ✅ Foto varsa yükle (en sağlam yöntem)
         if profile_pic:
             try:
-                file = await client.upload_file(profile_pic)
-                await client(functions.photos.UploadProfilePhotoRequest(file))
-            except Exception:
-                pass
+                await client.upload_profile_photo(profile_pic)
+                print("✅ Klon profil foto güncellendi.")
+            except Exception as e:
+                print("⚠️ Klon profil foto yüklenemedi:", e)
 
         await event.edit("✅ Klon tamamlandı 😈\n`Geri almak için: .unklon`")
 
     @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(unklon)\s*$"))
     async def unklon_handler(event):
+        # Owner check
         if OWNER_ID != 0 and event.sender_id != OWNER_ID:
             return
         if event.fwd_from:
@@ -180,26 +206,26 @@ def setup(client):
             await client(functions.account.UpdateProfileRequest(last_name=last_name))
             await client(functions.account.UpdateProfileRequest(about=bio))
 
-            # profil foto varsa geri yükle
+            # ✅ Foto varsa geri yükle (en sağlam yöntem)
             if has_photo and os.path.exists(BACKUP_PHOTO):
                 try:
-                    file = await client.upload_file(BACKUP_PHOTO)
-                    await client(functions.photos.UploadProfilePhotoRequest(file))
-                except:
-                    pass
+                    await client.upload_profile_photo(BACKUP_PHOTO)
+                    print("✅ UnKlon profil foto geri yüklendi.")
+                except Exception as e:
+                    print("⚠️ UnKlon foto yüklenemedi:", e)
 
             await event.edit("✅ Profil geri yüklendi! (UnKlon başarılı)")
 
         except Exception as e:
             await event.edit(f"❌ UnKlon başarısız:\n`{e}`")
 
-
-add_help(
-    "klon",
-    ".klon / .unklon",
-    "Klon: Yanıt verdiğin kişinin profilini klonlar.\n"
-    "UnKlon: Klon öncesi profiline geri döner.\n\n"
-    "Kullanım:\n"
-    "`.klon` (reply) veya `.klon @username`\n"
-    "`.unklon`"
-)
+    # Help entegrasyonu
+    add_help(
+        "klon",
+        ".klon / .unklon",
+        "Klon: Yanıt verdiğin kişinin profilini (ad/soyad/bio/foto) klonlar.\n"
+        "UnKlon: Klon öncesi profiline geri döner.\n\n"
+        "Kullanım:\n"
+        "`.klon` (reply) veya `.klon @username`\n"
+        "`.unklon`"
+    )
