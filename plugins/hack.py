@@ -64,31 +64,8 @@ def setup(client):
             await event.edit(frame)
 
 
-    @client.on(events.NewMessage(outgoing=True, pattern=r"(?i)^\.(hekir)\s*$"))
-    async def cmd_hekir(event):
-        animation_interval = 3
-        animation_chars = [
-            "`Yine Aşık ettin Kendine Zalımın Kızı...`",
-            "`Hazırım.`",
-            "`Aha Şimdi Sıçtın... 0%\n▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ `",
-            "`Hacking... 4%\n█▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ `",
-            "`Hacking... 8%\n██▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ `",
-            "`Hacking... 20%\n█████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ `",
-            "`Hacking... 36%\n█████████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ `",
-            "`Hacking... 52%\n█████████████▒▒▒▒▒▒▒▒▒▒▒▒ `",
-            "`Hacking... 84%\n█████████████████████▒▒▒▒ `",
-            "`Hacking... 100%\n█████████HACKED███████████ `",
-            "`Girdim Sanki...\n\n Para ödemene gerek yok seni almışım yeter..`"
-        ]
-
-        await event.edit("Kalbine giriyorum..")
-        for frame in animation_chars:
-            await asyncio.sleep(animation_interval)
-            await event.edit(frame)
-
-
 # ---- HELP ----
 from plugins._help import add_help
 add_help("eğlence", ".hack", "Sahte hack animasyonu (eğlence).")
 add_help("eğlence", ".hack2", "Gelişmiş sahte hack animasyonu.")
-add_help("eğlence", ".hekir", "Romantik sahte hack animasyonu 😄")
+

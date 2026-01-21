@@ -459,6 +459,8 @@ from plugins.oldest import setup as oldest_setup
 oldest_setup(client)
 from plugins.hack import setup as hack_setup
 hack_setup(client)
+from plugins.klon import setup as klon_setup
+klon_setup(client)
 
 
 # ---------------- Start ----------------
