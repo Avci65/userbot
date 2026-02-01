@@ -461,6 +461,8 @@ from plugins.hack import setup as hack_setup
 hack_setup(client)
 from plugins.klon import setup as klon_setup
 klon_setup(client)
+from plugins.afk import setup as afk_setup
+afk_setup(client)
 
 
 # ---------------- Start ----------------
