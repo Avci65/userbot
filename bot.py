@@ -444,7 +444,7 @@ all_setup(client)
 from plugins.purge import setup as purge_setup
 purge_setup(client)
 from plugins.translate import setup as translate_setup
-translate_setup(client)
+translate_setup(client, rdb, is_owner)
 from plugins.pmguard import setup as pmguard_setup
 pmguard_setup(client, rdb)
 from plugins.help import setup as help_setup
