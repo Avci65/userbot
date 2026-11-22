@@ -40,7 +40,7 @@ rdb = redis.from_url(REDIS_URL, decode_responses=True) if REDIS_URL else None
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 def is_owner(event) -> bool:
-    return OWNER_ID == 0 or event.sender_id == OWNER_ID
+        return event.out
 
 # ---------------- Helpers ----------------
 BOT_USERNAME_CACHE = None
