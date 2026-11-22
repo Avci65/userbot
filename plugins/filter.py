@@ -15,7 +15,7 @@ def setup(client):
     rdb = redis.from_url(REDIS_URL, decode_responses=True)
 
     def is_owner(event) -> bool:
-        return OWNER_ID == 0 or event.sender_id == OWNER_ID
+          return event.out
 
     def _key(chat_id: int) -> str:
         # ✅ Her grup için ayrı key (bu yüzden A/B farklı çalışır)
